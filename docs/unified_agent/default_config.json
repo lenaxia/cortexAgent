@@ -1,0 +1,22 @@
+{
+  "name": "Unified Agent",
+  "system_prompt": "You are a helpful assistant with access to various tools and memory capabilities. You can connect to MCP servers to access additional tools.",
+  "mcp_servers": [
+    {
+      "name": "home-assistant",
+      "url": "http://192.168.5.131:8123/mcp_server/sse",
+      "server_type": "streamable-http",
+      "auth_token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYzdmM2UxYTIyZmY0Y2Q3YjA4YTdjOTkxNmY2Y2M2OSIsImlhdCI6MTc1MTc1Mzk1MywiZXhwIjoyMDY3MTEzOTUzfQ.oa-IE7oMmQ8q0QAxzC-X5lefGkuG-Ro4BscpgWwwKjU",
+      "enabled": true
+    }
+  ],
+  "memory": {
+    "enabled": true,
+    "user_id": "default_user",
+    "memory_type": "mem0",
+    "aws_region": null,
+    "opensearch_host": null
+  },
+  "http_enabled": true,
+  "aws_profile": "mikekao-prod"
+}
