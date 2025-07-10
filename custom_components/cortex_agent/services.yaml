@@ -1,0 +1,108 @@
+reload:
+  name: Reload
+  description: Reload the agent configuration
+  target:
+    entity:
+      integration: cortex_agent
+
+connect_mcp_server:
+  name: Connect MCP Server
+  description: Connect to an MCP server
+  target:
+    entity:
+      integration: cortex_agent
+  fields:
+    name:
+      name: Name
+      description: Name of the server
+      required: true
+      example: "weather-server"
+    url:
+      name: URL
+      description: URL of the server
+      required: true
+      example: "http://localhost:8080"
+    server_type:
+      name: Server Type
+      description: Type of server connection
+      required: true
+      selector:
+        select:
+          options: ["sse", "streamable_http", "stdio"]
+    auth_token:
+      name: Auth Token
+      description: Authentication token if required (for SSE and Streamable HTTP)
+      required: false
+    command_args:
+      name: Command Arguments
+      description: Command-line arguments for stdio servers
+      required: false
+      example: ["--debug", "--no-auth"]
+
+disconnect_mcp_server:
+  name: Disconnect MCP Server
+  description: Disconnect from an MCP server
+  target:
+    entity:
+      integration: cortex_agent
+  fields:
+    name:
+      name: Name
+      description: Name of the server to disconnect
+      required: true
+      example: "weather-server"
+
+add_tool:
+  name: Add Tool
+  description: Add a custom tool to the agent
+  target:
+    entity:
+      integration: cortex_agent
+  fields:
+    name:
+      name: Name
+      description: Name of the tool
+      required: true
+    description:
+      name: Description
+      description: Description of what the tool does
+      required: true
+    type:
+      name: Type
+      description: Type of tool (function or module)
+      required: true
+      selector:
+        select:
+          options: ["function", "module"]
+    code:
+      name: Code
+      description: Function code (required for function type)
+      required: false
+    path:
+      name: Path
+      description: Path to module (required for module type)
+      required: false
+
+remove_tool:
+  name: Remove Tool
+  description: Remove a custom tool from the agent
+  target:
+    entity:
+      integration: cortex_agent
+  fields:
+    name:
+      name: Name
+      description: Name of the tool to remove
+      required: true
+
+clear_conversation:
+  name: Clear Conversation
+  description: Clear conversation history
+  target:
+    entity:
+      integration: cortex_agent
+  fields:
+    conversation_id:
+      name: Conversation ID
+      description: ID of conversation to clear (leave empty to clear all)
+      required: false

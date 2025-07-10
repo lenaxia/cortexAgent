@@ -1,0 +1,14 @@
+{
+  "domain": "cortex_agent",
+  "name": "CortexAgent",
+  "documentation": "https://github.com/your-repo/cortex_agent",
+  "requirements": [
+    "strands-agent>=0.5.0",
+    "pydantic>=2.0.0"
+  ],
+  "dependencies": ["conversation"],
+  "codeowners": ["@yourusername"],
+  "config_flow": true,
+  "version": "0.1.0",
+  "iot_class": "cloud_polling"
+}

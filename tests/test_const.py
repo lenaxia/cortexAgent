@@ -1,189 +1,54 @@
-"""Test const module."""
+"""Test the Cortex Agent constants."""
+from custom_components.cortex_agent import const
 
-from enum import Enum
-import logging
-import sys
-from unittest.mock import Mock, patch
+def test_domain_constants():
+    """Test domain and naming constants."""
+    assert const.DOMAIN == "cortex_agent"
+    assert const.DEFAULT_NAME == "Cortex Agent"
 
-import pytest
+def test_configuration_constants():
+    """Test configuration key constants."""
+    assert const.CONF_PROVIDER == "provider"
+    assert const.CONF_MODEL_ID == "model_id"
+    assert const.CONF_API_KEY == "api_key"
+    assert const.CONF_SYSTEM_PROMPT == "system_prompt"
+    assert const.CONF_MAX_TOKENS == "max_tokens"
+    assert const.CONF_TEMPERATURE == "temperature"
+    assert const.CONF_MEMORY_ENABLED == "memory_enabled"
+    assert const.CONF_MCP_SERVERS == "mcp_servers"
+    assert const.CONF_CUSTOM_TOOLS == "custom_tools"
 
-from homeassistant import const
-from homeassistant.components import alarm_control_panel, lock
+def test_default_values():
+    """Test default value constants."""
+    assert const.DEFAULT_SYSTEM_PROMPT == "You are a helpful AI assistant integrated with Home Assistant."
+    assert const.DEFAULT_MAX_TOKENS == 1500
+    assert const.DEFAULT_TEMPERATURE == 0.7
 
-from .common import (
-    extract_stack_to_frame,
-    help_test_all,
-    import_and_test_deprecated_constant,
-    import_and_test_deprecated_constant_enum,
-)
+def test_model_providers():
+    """Test model provider constants."""
+    assert const.PROVIDER_OPENAI == "openai"
+    assert const.PROVIDER_ANTHROPIC == "anthropic"
+    assert const.PROVIDER_BEDROCK == "bedrock"
+    assert const.PROVIDER_LITELLM == "litellm"
+    assert len(const.PROVIDERS) == 4
+    assert all(provider in const.PROVIDERS for provider in [
+        const.PROVIDER_OPENAI,
+        const.PROVIDER_ANTHROPIC,
+        const.PROVIDER_BEDROCK,
+        const.PROVIDER_LITELLM
+    ])
 
+def test_service_constants():
+    """Test service name constants."""
+    assert const.SERVICE_RELOAD == "reload"
+    assert const.SERVICE_CONNECT_MCP_SERVER == "connect_mcp_server"
+    assert const.SERVICE_DISCONNECT_MCP_SERVER == "disconnect_mcp_server"
+    assert const.SERVICE_ADD_TOOL == "add_tool"
+    assert const.SERVICE_REMOVE_TOOL == "remove_tool"
+    assert const.SERVICE_CLEAR_CONVERSATION == "clear_conversation"
 
-def _create_tuples(
-    value: type[Enum] | list[Enum], constant_prefix: str
-) -> list[tuple[Enum, str]]:
-    return [(enum, constant_prefix) for enum in value]
-
-
-def test_all() -> None:
-    """Test module.__all__ is correctly set."""
-    help_test_all(const)
-
-
-@pytest.mark.parametrize(
-    ("replacement", "constant_name", "breaks_in_version"),
-    [
-        (const.UnitOfArea.SQUARE_METERS, "AREA_SQUARE_METERS", "2025.12"),
-    ],
-)
-def test_deprecated_constant_name_changes(
-    caplog: pytest.LogCaptureFixture,
-    replacement: Enum,
-    constant_name: str,
-    breaks_in_version: str,
-) -> None:
-    """Test deprecated constants, where the name is not the same as the enum value."""
-    import_and_test_deprecated_constant(
-        caplog,
-        const,
-        constant_name,
-        f"{replacement.__class__.__name__}.{replacement.name}",
-        replacement,
-        breaks_in_version,
-    )
-
-
-def _create_tuples_lock_states(
-    enum: type[Enum], constant_prefix: str, remove_in_version: str
-) -> list[tuple[Enum, str]]:
-    return [
-        (enum_field, constant_prefix, remove_in_version)
-        for enum_field in enum
-        if enum_field
-        not in [
-            lock.LockState.OPEN,
-            lock.LockState.OPENING,
-        ]
-    ]
-
-
-@pytest.mark.parametrize(
-    ("enum", "constant_prefix", "remove_in_version"),
-    _create_tuples_lock_states(lock.LockState, "STATE_", "2025.10"),
-)
-def test_deprecated_constants_lock(
-    caplog: pytest.LogCaptureFixture,
-    enum: Enum,
-    constant_prefix: str,
-    remove_in_version: str,
-) -> None:
-    """Test deprecated constants."""
-    import_and_test_deprecated_constant_enum(
-        caplog, const, enum, constant_prefix, remove_in_version
-    )
-
-
-def _create_tuples_alarm_states(
-    enum: type[Enum], constant_prefix: str, remove_in_version: str
-) -> list[tuple[Enum, str]]:
-    return [
-        (enum_field, constant_prefix, remove_in_version)
-        for enum_field in enum
-        if enum_field
-        not in [
-            lock.LockState.OPEN,
-            lock.LockState.OPENING,
-        ]
-    ]
-
-
-@pytest.mark.parametrize(
-    ("enum", "constant_prefix", "remove_in_version"),
-    _create_tuples_lock_states(
-        alarm_control_panel.AlarmControlPanelState, "STATE_ALARM_", "2025.11"
-    ),
-)
-def test_deprecated_constants_alarm(
-    caplog: pytest.LogCaptureFixture,
-    enum: Enum,
-    constant_prefix: str,
-    remove_in_version: str,
-) -> None:
-    """Test deprecated constants."""
-    import_and_test_deprecated_constant_enum(
-        caplog, const, enum, constant_prefix, remove_in_version
-    )
-
-
-def test_deprecated_unit_of_conductivity_alias() -> None:
-    """Test UnitOfConductivity deprecation."""
-
-    # Test the deprecated members are aliases
-    assert set(const.UnitOfConductivity) == {"S/cm", "µS/cm", "mS/cm"}
-
-
-def test_deprecated_unit_of_conductivity_members(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test UnitOfConductivity deprecation."""
-
-    module_name = "config.custom_components.hue.light"
-    filename = f"/home/paulus/{module_name.replace('.', '/')}.py"
-
-    with (
-        patch.dict(sys.modules, {module_name: Mock(__file__=filename)}),
-        patch(
-            "homeassistant.helpers.frame.linecache.getline",
-            return_value="await session.close()",
-        ),
-        patch(
-            "homeassistant.helpers.frame.get_current_frame",
-            return_value=extract_stack_to_frame(
-                [
-                    Mock(
-                        filename="/home/paulus/homeassistant/core.py",
-                        lineno="23",
-                        line="do_something()",
-                    ),
-                    Mock(
-                        filename=filename,
-                        lineno="23",
-                        line="await session.close()",
-                    ),
-                    Mock(
-                        filename="/home/paulus/aiohue/lights.py",
-                        lineno="2",
-                        line="something()",
-                    ),
-                ]
-            ),
-        ),
-    ):
-        const.UnitOfConductivity.SIEMENS  # noqa: B018
-        const.UnitOfConductivity.MICROSIEMENS  # noqa: B018
-        const.UnitOfConductivity.MILLISIEMENS  # noqa: B018
-
-    assert len(caplog.record_tuples) == 3
-
-    def deprecation_message(member: str, replacement: str) -> str:
-        return (
-            f"The deprecated enum member UnitOfConductivity.{member} was used from hue. "
-            "It will be removed in HA Core 2025.11.0. Use UnitOfConductivity."
-            f"{replacement} instead, please report it to the author of the 'hue' custom"
-            " integration"
-        )
-
-    assert (
-        const.__name__,
-        logging.WARNING,
-        deprecation_message("SIEMENS", "SIEMENS_PER_CM"),
-    ) in caplog.record_tuples
-    assert (
-        const.__name__,
-        logging.WARNING,
-        deprecation_message("MICROSIEMENS", "MICROSIEMENS_PER_CM"),
-    ) in caplog.record_tuples
-    assert (
-        const.__name__,
-        logging.WARNING,
-        deprecation_message("MILLISIEMENS", "MILLISIEMENS_PER_CM"),
-    ) in caplog.record_tuples
+def test_storage_constants():
+    """Test storage-related constants."""
+    assert const.STORAGE_VERSION == 1
+    assert const.STORAGE_KEY == "cortex_agent.storage"
+    assert const.STORAGE_KEY_CONVERSATIONS == "cortex_agent.conversations"
