@@ -1,0 +1,8 @@
+{
+  "name": "CortexAgent",
+  "content_in_root": false,
+  "render_readme": true,
+  "homeassistant": "2025.7.0",
+  "hacs": "2.0.0",
+  "domains": ["cortex_agent"]
+}

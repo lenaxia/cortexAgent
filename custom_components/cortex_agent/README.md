@@ -15,6 +15,8 @@ CortexAgent is a powerful AI assistant integration for Home Assistant that lever
 - **Asynchronous Architecture**: Fully asynchronous design compatible with Home Assistant
 - **Frontend Integration**: Custom cards and panels for conversation, tools, and MCP servers
 - **WebSocket API**: Real-time updates and interaction with the integration
+- **Metrics and Telemetry**: Track usage, performance, and errors
+- **MCP Server Support**: Connect to external tool providers via Model Context Protocol
 
 ## Installation
 
@@ -22,6 +24,7 @@ CortexAgent is a powerful AI assistant integration for Home Assistant that lever
 2. Install the "CortexAgent" integration from HACS
 3. Restart Home Assistant
 4. Add the integration through the Home Assistant UI (Settings > Devices & Services > Add Integration)
+5. Configure your preferred model provider and settings
 
 ## Configuration
 
@@ -45,9 +48,10 @@ The integration can be configured through the Home Assistant UI. The following o
 
 - **Add Server**: Add a new MCP server
   - **Name**: Name for the server
-  - **URL**: URL of the MCP server
-  - **Server Type**: Local or Remote
-  - **Auth Token**: Authentication token if required
+  - **URL**: URL of the MCP server or path to executable for stdio servers
+  - **Server Type**: SSE, Streamable HTTP, or Stdio
+  - **Auth Token**: Authentication token if required (for remote servers)
+  - **Command Args**: Command-line arguments (for stdio servers)
 
 ### Custom Tools
 
@@ -82,6 +86,8 @@ Once configured, the agent will be available as a conversation agent in Home Ass
 - The conversation.process service
 - The dedicated Cortex Agent panel in the sidebar
 - Custom Lovelace cards for conversation, tools, and MCP servers
+
+The agent uses a sophisticated conversation strategy that can handle complex queries, follow-up questions, and context-aware responses. It leverages the memory capabilities to remember past interactions and provide more personalized assistance.
 
 ### Lovelace Cards
 
@@ -145,26 +151,27 @@ custom_components/cortex_agent/
 ├── const.py                 # Constants
 ├── services.yaml            # Service descriptions
 ├── strings.json             # Translation strings
-├── agent_manager.py         # Agent management
-├── mcp_connector.py         # MCP server connection
-├── model_provider.py        # Model provider management
-├── tool_manager.py          # Tool management
-├── tool_registry.py         # Tool registration system
+├── conversation_strategy.py # Conversation strategy implementation
 ├── conversation.py          # Conversation platform integration
 ├── conversation_manager.py  # Conversation history management
+├── mcp_connector.py         # MCP server connection
+├── model_provider.py        # Model provider management
+├── models.py                # Data models and interfaces
+├── tool_registry.py         # Tool registration system
+├── tools.py                 # Tool management
 ├── memory_handler.py        # Memory operations
 ├── event_listener.py        # Home Assistant event integration
 ├── metrics.py               # Metrics and telemetry
 ├── documentation.py         # Documentation generation
 ├── exceptions.py            # Custom exceptions
-├── helpers.py               # Helper functions
 ├── coordinator.py           # Data update coordinator
 ├── entity.py                # Entity definitions
 ├── diagnostics.py           # Diagnostics support
 ├── system_health.py         # System health support
 ├── websocket_api.py         # WebSocket API
 ├── frontend.py              # Frontend resources
-├── repairs.py               # Repairs platform integration
+├── strands_integration.py   # Strands framework integration
+├── DEVELOPERS.md            # Developer documentation
 └── tools/                   # Built-in tools directory
     ├── __init__.py
     ├── memory_tools.py
@@ -178,6 +185,50 @@ custom_components/cortex_agent/
     └── cortex-mcp-servers-card.js
 ```
 
+### Testing
+
+The integration includes comprehensive tests for all components:
+
+```
+tests/test_cortex_agent/
+├── test_init.py             # Tests for initialization
+├── test_config_flow.py      # Tests for configuration flow
+├── test_config_flow_e2e.py  # End-to-end tests for configuration
+├── test_model_provider.py   # Tests for model providers
+├── test_tool_registry.py    # Tests for tool registry
+├── test_tools.py            # Tests for tools
+├── test_mcp_connector.py    # Tests for MCP connector
+├── test_metrics.py          # Tests for metrics
+├── test_documentation.py    # Tests for documentation generation
+└── conftest.py              # Test fixtures and utilities
+```
+
+### Model Context Protocol (MCP)
+
+The integration supports the Model Context Protocol (MCP) for connecting to external tool providers. MCP servers can be one of three types:
+
+1. **SSE (Server-Sent Events)**: Remote servers that communicate over HTTP using Server-Sent Events
+2. **Streamable HTTP**: Remote servers that communicate over HTTP with streaming capabilities
+3. **Stdio (Standard Input/Output)**: Local servers that run on the user's machine and communicate via standard input/output
+
+MCP servers provide additional tools and resources that extend the agent's capabilities. The integration includes a robust connector system for managing these connections and executing tools.
+
+### Metrics and Telemetry
+
+The integration includes a metrics system that tracks:
+
+- Request counts and success rates
+- Tool usage statistics
+- Response times
+- Token usage
+- Error rates by type
+
+These metrics can be accessed through the `cortex_agent.get_agent_metrics` service and are useful for monitoring the performance and usage of the agent.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please see the DEVELOPERS.md file for guidelines on contributing to this project.
