@@ -148,10 +148,14 @@ class TestCortexAgent:
         agent.strategy.generate_response = AsyncMock(return_value="This is a test response")
         
         # Create a conversation input
+        context = MagicMock()
         user_input = conversation.ConversationInput(
             text="Hello, how are you?",
             conversation_id=None,
             language="en",
+            context=context,
+            device_id="test_device",
+            agent_id="test_agent",
         )
         
         # Process the input
@@ -192,10 +196,14 @@ class TestCortexAgent:
         agent.strategy.generate_response = AsyncMock(side_effect=Exception("Test error"))
         
         # Create a conversation input
+        context = MagicMock()
         user_input = conversation.ConversationInput(
             text="Hello, how are you?",
             conversation_id=None,
             language="en",
+            context=context,
+            device_id="test_device",
+            agent_id="test_agent",
         )
         
         # Process the input
