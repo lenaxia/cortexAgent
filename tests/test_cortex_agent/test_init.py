@@ -252,11 +252,10 @@ class TestSetup:
         # Mock create_model_provider to raise an exception
         mock_create_model_provider.side_effect = Exception("Test error")
         
-        # Call setup_entry
-        result = await async_setup_entry(mock_hass, mock_entry)
-        
-        # Check result
-        assert result is False
+        # Call setup_entry and expect ConfigEntryNotReady exception
+        from homeassistant.exceptions import ConfigEntryNotReady
+        with pytest.raises(ConfigEntryNotReady, match="Unexpected error: Test error"):
+            await async_setup_entry(mock_hass, mock_entry)
 
     async def test_async_unload_entry(
         self,
@@ -270,6 +269,7 @@ class TestSetup:
         
         mock_conversation_manager = MagicMock()
         mock_conversation_manager.async_save = AsyncMock()
+        mock_conversation_manager.async_unload = AsyncMock()
         
         mock_memory_handler = MagicMock()
         mock_memory_handler.async_save = AsyncMock()

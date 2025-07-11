@@ -421,6 +421,20 @@ class TestMCPConnector:
         mock_client = MagicMock()
         connector.clients["test-server"] = mock_client
         
+        # Add tool to cache
+        connector.tools_cache["test-server"] = [
+            MCPTool(
+                server_name="test-server",
+                tool_name="test-tool",
+                description="Test tool",
+                parameters={"param1": {"type": "string"}}
+            )
+        ]
+        
+        # Mock validation and sanitization methods
+        connector._validate_tool_arguments = MagicMock()
+        connector._sanitize_result = MagicMock(return_value={"result": "success"})
+        
         # Mock execute_tool_sync
         connector._execute_tool_sync = MagicMock(return_value={"result": "success"})
         
@@ -436,6 +450,10 @@ class TestMCPConnector:
         connector._execute_tool_sync.assert_called_once_with(
             mock_client, "test-tool", {"param1": "value1"}
         )
+        
+        # Check that validation and sanitization methods were called
+        connector._validate_tool_arguments.assert_called_once()
+        connector._sanitize_result.assert_called_once_with({"result": "success"})
 
     async def test_async_execute_tool_not_connected(self, mock_hass, mock_entry):
         """Test executing a tool on a server that's not connected."""
@@ -508,3 +526,109 @@ class TestMCPConnector:
         
         # Check result
         assert "test-server" not in connector._execution_callbacks
+        
+    def test_is_valid_identifier(self, mock_hass, mock_entry):
+        """Test validating identifiers."""
+        connector = MCPConnector(mock_hass, mock_entry)
+        
+        # Test valid identifiers
+        assert connector._is_valid_identifier("valid_identifier") is True
+        assert connector._is_valid_identifier("valid-identifier") is True
+        assert connector._is_valid_identifier("valid123") is True
+        
+        # Test invalid identifiers
+        assert connector._is_valid_identifier("invalid identifier") is False  # Contains space
+        assert connector._is_valid_identifier("invalid;identifier") is False  # Contains semicolon
+        assert connector._is_valid_identifier("invalid/identifier") is False  # Contains slash
+        assert connector._is_valid_identifier("") is False  # Empty string
+        
+    def test_validate_tool_arguments(self, mock_hass, mock_entry):
+        """Test validating tool arguments."""
+        connector = MCPConnector(mock_hass, mock_entry)
+        
+        # Create a test tool
+        tool = MCPTool(
+            server_name="test-server",
+            tool_name="test-tool",
+            description="Test tool",
+            parameters={
+                "required_string": {"type": "string", "required": True},
+                "optional_number": {"type": "number"},
+                "boolean_param": {"type": "boolean"},
+                "array_param": {"type": "array"},
+                "object_param": {"type": "object"},
+            }
+        )
+        
+        # Test valid arguments
+        valid_args = {
+            "required_string": "test",
+            "optional_number": 42,
+            "boolean_param": True,
+            "array_param": [1, 2, 3],
+            "object_param": {"key": "value"}
+        }
+        # Should not raise an exception
+        connector._validate_tool_arguments(tool, valid_args)
+        
+        # Test missing required parameter
+        missing_required = {
+            "optional_number": 42
+        }
+        with pytest.raises(ValueError, match="Missing required parameter"):
+            connector._validate_tool_arguments(tool, missing_required)
+            
+        # Test unknown parameter
+        unknown_param = {
+            "required_string": "test",
+            "unknown_param": "value"
+        }
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            connector._validate_tool_arguments(tool, unknown_param)
+            
+        # Test invalid parameter types
+        invalid_types = {
+            "required_string": 123,  # Should be string
+            "optional_number": "not a number",  # Should be number
+            "boolean_param": "not a boolean",  # Should be boolean
+            "array_param": "not an array",  # Should be array
+            "object_param": "not an object"  # Should be object
+        }
+        
+        # Test each invalid type separately
+        for param, value in invalid_types.items():
+            with pytest.raises(ValueError, match=f"Parameter {param} must be"):
+                connector._validate_tool_arguments(tool, {
+                    "required_string": "test" if param != "required_string" else value,
+                    param: value
+                })
+                
+    def test_sanitize_result(self, mock_hass, mock_entry):
+        """Test sanitizing tool execution results."""
+        connector = MCPConnector(mock_hass, mock_entry)
+        
+        # Test sanitizing a simple result
+        simple_result = {"key": "value"}
+        sanitized = connector._sanitize_result(simple_result)
+        assert sanitized == simple_result
+        
+        # Test sanitizing a nested result
+        nested_result = {
+            "string": "value",
+            "number": 42,
+            "boolean": True,
+            "nested": {
+                "key": "value"
+            },
+            "array": [
+                {"item": 1},
+                {"item": 2}
+            ]
+        }
+        sanitized = connector._sanitize_result(nested_result)
+        assert sanitized == nested_result
+        
+        # Test sanitizing a non-dict result
+        non_dict = "not a dict"
+        sanitized = connector._sanitize_result(non_dict)
+        assert sanitized == non_dict

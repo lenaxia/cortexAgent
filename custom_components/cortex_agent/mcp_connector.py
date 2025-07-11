@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any, Callable, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
@@ -71,6 +72,10 @@ class MCPConnector:
         self.clients: Dict[str, Any] = {}
         self.tools_cache: Dict[str, List[MCPTool]] = {}
         self._execution_callbacks: Dict[str, Callable] = {}
+        self._connection_status: Dict[str, bool] = {}
+        self._reconnect_tasks: Dict[str, asyncio.Task] = {}
+        self._reconnect_interval: int = 60  # seconds
+        self._max_reconnect_attempts: int = 5
 
     async def async_setup(self) -> None:
         """Set up MCP connections from config."""
@@ -104,6 +109,12 @@ class MCPConnector:
             if server_config.name in self.clients:
                 _LOGGER.info("Already connected to %s, disconnecting first", server_config.name)
                 await self.async_disconnect(server_config.name)
+                
+            # Cancel any ongoing reconnection tasks
+            if server_config.name in self._reconnect_tasks:
+                if not self._reconnect_tasks[server_config.name].done():
+                    self._reconnect_tasks[server_config.name].cancel()
+                self._reconnect_tasks.pop(server_config.name, None)
                 
             # Check if MCP clients are available
             global streamablehttp_client, sse_client, stdio_client, MCPClient
@@ -164,6 +175,7 @@ class MCPConnector:
                 transport_factory = lambda: stdio_client(command, args)
             else:
                 _LOGGER.error("Unsupported server type: %s", server_config.server_type)
+                self._connection_status[server_config.name] = False
                 return False
                 
             # Create the client
@@ -171,6 +183,7 @@ class MCPConnector:
             
             # Store the connected client
             self.clients[server_config.name] = client
+            self._connection_status[server_config.name] = True
             _LOGGER.info(
                 "Successfully connected to MCP server: %s (%s)",
                 server_config.name,
@@ -189,6 +202,9 @@ class MCPConnector:
                     "Error using MCP client context manager: %s", str(err)
                 )
             
+            # Store the server config for reconnection purposes
+            self._store_server_config(server_config.name, config)
+            
             return True
             
         except ImportError as err:
@@ -197,6 +213,7 @@ class MCPConnector:
                 config.get(ATTR_NAME, "unknown"),
                 str(err),
             )
+            self._connection_status[config.get(ATTR_NAME, "unknown")] = False
             raise NetworkError(f"Failed to connect to MCP server {config.get(ATTR_NAME, 'unknown')}: {str(err)}")
         except Exception as err:
             _LOGGER.error(
@@ -204,6 +221,15 @@ class MCPConnector:
                 config.get(ATTR_NAME, "unknown"),
                 str(err),
             )
+            self._connection_status[config.get(ATTR_NAME, "unknown")] = False
+            
+            # Store the server config for reconnection purposes
+            self._store_server_config(config.get(ATTR_NAME, "unknown"), config)
+            
+            # Start reconnection task if it's not a stdio server (those are local and should be stable)
+            if config.get(ATTR_SERVER_TYPE) != SERVER_TYPE_STDIO:
+                self._start_reconnection_task(config.get(ATTR_NAME, "unknown"))
+                
             return False
 
     async def async_disconnect(self, server_name: str) -> bool:
@@ -218,6 +244,12 @@ class MCPConnector:
         if server_name not in self.clients:
             _LOGGER.warning("Not connected to server: %s", server_name)
             return False
+            
+        # Cancel any ongoing reconnection tasks
+        if server_name in self._reconnect_tasks:
+            if not self._reconnect_tasks[server_name].done():
+                self._reconnect_tasks[server_name].cancel()
+            self._reconnect_tasks.pop(server_name, None)
             
         try:
             # Get the client safely
@@ -240,6 +272,7 @@ class MCPConnector:
                 del self.clients[server_name]
                 if server_name in self.tools_cache:
                     del self.tools_cache[server_name]
+                self._connection_status[server_name] = False
             except Exception as err:
                 _LOGGER.error("Error removing client from cache: %s", str(err))
                 return False
@@ -248,6 +281,7 @@ class MCPConnector:
             return True
         except Exception as err:
             _LOGGER.error("Error disconnecting from %s: %s", server_name, str(err))
+            self._connection_status[server_name] = False
             return False
 
     def _update_tools_cache(self, server_name: str) -> None:
@@ -386,11 +420,36 @@ class MCPConnector:
             
         Raises:
             NetworkError: If the server is not connected or execution fails
+            ValueError: If arguments are invalid
+            PermissionError: If tool execution is not allowed
         """
         # Check if server is connected
         if server_name not in self.clients:
             _LOGGER.error("Cannot execute tool: Server %s not connected", server_name)
             raise NetworkError(f"Server {server_name} not connected")
+            
+        # Validate server name and tool name to prevent injection attacks
+        if not self._is_valid_identifier(server_name):
+            _LOGGER.error("Invalid server name: %s", server_name)
+            raise ValueError(f"Invalid server name: {server_name}")
+            
+        if not self._is_valid_identifier(tool_name):
+            _LOGGER.error("Invalid tool name: %s", tool_name)
+            raise ValueError(f"Invalid tool name: {tool_name}")
+            
+        # Validate that the tool exists in the tools cache
+        tool_exists = False
+        if server_name in self.tools_cache:
+            for tool in self.tools_cache[server_name]:
+                if tool.tool_name == tool_name:
+                    tool_exists = True
+                    # Validate arguments against tool parameters
+                    self._validate_tool_arguments(tool, arguments)
+                    break
+                    
+        if not tool_exists:
+            _LOGGER.error("Tool %s not found on server %s", tool_name, server_name)
+            raise ValueError(f"Tool {tool_name} not found on server {server_name}")
             
         client = self.clients[server_name]
         
@@ -413,8 +472,11 @@ class MCPConnector:
                     self._execute_tool_sync, client, tool_name, arguments
                 )
                 
-            _LOGGER.debug("Tool execution result: %s", sync_result)
-            return sync_result
+            # Validate the result to ensure it doesn't contain malicious content
+            sanitized_result = self._sanitize_result(sync_result)
+            
+            _LOGGER.debug("Tool execution result: %s", sanitized_result)
+            return sanitized_result
             
         except Exception as err:
             _LOGGER.error(
@@ -462,3 +524,174 @@ class MCPConnector:
         """
         if server_name in self._execution_callbacks:
             del self._execution_callbacks[server_name]
+            
+    def _store_server_config(self, server_name: str, config: Dict[str, Any]) -> None:
+        """Store server configuration for reconnection purposes.
+        
+        Args:
+            server_name: Name of the server
+            config: Server configuration
+        """
+        # Store the config in the hass.data for this integration
+        if not hasattr(self, "_server_configs"):
+            self._server_configs = {}
+            
+        self._server_configs[server_name] = config
+        
+    def _start_reconnection_task(self, server_name: str) -> None:
+        """Start a reconnection task for a server.
+        
+        Args:
+            server_name: Name of the server
+        """
+        # Cancel any existing reconnection task
+        if server_name in self._reconnect_tasks:
+            if not self._reconnect_tasks[server_name].done():
+                self._reconnect_tasks[server_name].cancel()
+                
+        # Start a new reconnection task
+        self._reconnect_tasks[server_name] = asyncio.create_task(
+            self._reconnect_server(server_name)
+        )
+        
+    async def _reconnect_server(self, server_name: str) -> None:
+        """Reconnect to a server with exponential backoff.
+        
+        Args:
+            server_name: Name of the server
+        """
+        if server_name not in self._server_configs:
+            _LOGGER.error("No configuration found for server: %s", server_name)
+            return
+            
+        config = self._server_configs[server_name]
+        attempt = 0
+        
+        while attempt < self._max_reconnect_attempts:
+            # Exponential backoff
+            wait_time = min(self._reconnect_interval * (2 ** attempt), 300)  # Max 5 minutes
+            _LOGGER.info(
+                "Reconnecting to %s in %s seconds (attempt %s/%s)",
+                server_name,
+                wait_time,
+                attempt + 1,
+                self._max_reconnect_attempts,
+            )
+            
+            try:
+                await asyncio.sleep(wait_time)
+            except asyncio.CancelledError:
+                _LOGGER.debug("Reconnection task for %s cancelled", server_name)
+                return
+                
+            # Try to reconnect
+            _LOGGER.info("Attempting to reconnect to %s", server_name)
+            success = await self.async_connect(config)
+            
+            if success:
+                _LOGGER.info("Successfully reconnected to %s", server_name)
+                return
+                
+            attempt += 1
+            
+        _LOGGER.error(
+            "Failed to reconnect to %s after %s attempts",
+            server_name,
+            self._max_reconnect_attempts,
+        )
+        
+    def get_connection_status(self, server_name: str = None) -> Dict[str, bool]:
+        """Get connection status for one or all servers.
+        
+        Args:
+            server_name: Name of the server or None for all servers
+            
+        Returns:
+            Dictionary of server names and connection status
+        """
+        if server_name:
+            return {server_name: self._connection_status.get(server_name, False)}
+        else:
+            return self._connection_status
+            
+    def _is_valid_identifier(self, identifier: str) -> bool:
+        """Check if an identifier is valid.
+        
+        Args:
+            identifier: The identifier to check
+            
+        Returns:
+            True if the identifier is valid, False otherwise
+        """
+        import re
+        # Only allow alphanumeric characters, underscores, and hyphens
+        return bool(re.match(r'^[a-zA-Z0-9_\-]+$', identifier))
+        
+    def _validate_tool_arguments(self, tool: MCPTool, arguments: Dict[str, Any]) -> None:
+        """Validate tool arguments against tool parameters.
+        
+        Args:
+            tool: The tool to validate arguments for
+            arguments: The arguments to validate
+            
+        Raises:
+            ValueError: If arguments are invalid
+        """
+        # Check for required parameters
+        for param_name, param_info in tool.parameters.items():
+            if param_info.get("required", False) and param_name not in arguments:
+                raise ValueError(f"Missing required parameter: {param_name}")
+                
+        # Check for unknown parameters
+        for arg_name in arguments:
+            if arg_name not in tool.parameters:
+                raise ValueError(f"Unknown parameter: {arg_name}")
+                
+        # Validate parameter types
+        for param_name, param_value in arguments.items():
+            if param_name in tool.parameters:
+                param_type = tool.parameters[param_name].get("type")
+                if param_type == "string" and not isinstance(param_value, str):
+                    raise ValueError(f"Parameter {param_name} must be a string")
+                elif param_type == "number" and not isinstance(param_value, (int, float)):
+                    raise ValueError(f"Parameter {param_name} must be a number")
+                elif param_type == "boolean" and not isinstance(param_value, bool):
+                    raise ValueError(f"Parameter {param_name} must be a boolean")
+                elif param_type == "array" and not isinstance(param_value, list):
+                    raise ValueError(f"Parameter {param_name} must be an array")
+                elif param_type == "object" and not isinstance(param_value, dict):
+                    raise ValueError(f"Parameter {param_name} must be an object")
+                    
+    def _sanitize_result(self, result: Any) -> Any:
+        """Sanitize tool execution result.
+        
+        Args:
+            result: The result to sanitize
+            
+        Returns:
+            Sanitized result
+        """
+        # If result is not a dictionary, return it as is
+        if not isinstance(result, dict):
+            return result
+            
+        # Create a copy of the result to avoid modifying the original
+        sanitized = {}
+        
+        # Recursively sanitize the result
+        for key, value in result.items():
+            # Sanitize keys
+            safe_key = str(key)
+            
+            # Sanitize values
+            if isinstance(value, dict):
+                sanitized[safe_key] = self._sanitize_result(value)
+            elif isinstance(value, list):
+                sanitized[safe_key] = [
+                    self._sanitize_result(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                sanitized[safe_key] = value
+                
+        return sanitized

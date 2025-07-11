@@ -262,7 +262,7 @@ class TestStrandsConversationStrategy:
         conversation_history,
         available_tools,
     ):
-        """Test generate_response method with fallback to default strategy."""
+        """Test generate_response method with Strands not available raises RuntimeError."""
         # Patch to simulate Strands not available
         with patch("custom_components.cortex_agent.conversation_strategy.STRANDS_AVAILABLE", False):
             strategy = StrandsConversationStrategy(
@@ -274,23 +274,25 @@ class TestStrandsConversationStrategy:
                 temperature=0.7,
             )
 
-            response = await strategy.generate_response(
-                conversation_history=conversation_history,
-                available_tools=available_tools,
-                conversation_id="test_conversation",
-            )
+            # Should raise RuntimeError
+            with pytest.raises(RuntimeError) as excinfo:
+                await strategy.generate_response(
+                    conversation_history=conversation_history,
+                    available_tools=available_tools,
+                    conversation_id="test_conversation",
+                )
+            
+            assert "Strands library is not available" in str(excinfo.value)
+            mock_model_provider.generate_response.assert_not_called()
 
-            assert response == "This is a test response"
-            mock_model_provider.generate_response.assert_called_once()
-
-    async def test_process_tool_calls_fallback(
+    async def test_process_tool_calls_not_implemented(
         self,
         mock_hass,
         mock_model_provider,
         mock_tool_registry,
         conversation_history,
     ):
-        """Test process_tool_calls method falls back to default strategy."""
+        """Test process_tool_calls method raises NotImplementedError."""
         # Mock conversation manager in hass.data
         mock_conversation_manager = MagicMock()
         mock_conversation_manager.get_conversation = MagicMock(
@@ -314,10 +316,12 @@ class TestStrandsConversationStrategy:
             }
         ]
 
-        response = await strategy.process_tool_calls(
-            tool_calls=tool_calls,
-            conversation_id="test_conversation",
-        )
-
-        assert response == "This is a test response"
-        mock_model_provider.generate_response.assert_called_once()
+        # Should raise NotImplementedError
+        with pytest.raises(NotImplementedError) as excinfo:
+            await strategy.process_tool_calls(
+                tool_calls=tool_calls,
+                conversation_id="test_conversation",
+            )
+        
+        assert "does not support direct tool calls processing" in str(excinfo.value)
+        mock_model_provider.generate_response.assert_not_called()

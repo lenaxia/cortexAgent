@@ -1,70 +1,82 @@
-"""Diagnostics support for the CortexAgent integration."""
+"""Diagnostics support for Cortex Agent."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_AGENT, DATA_COORDINATOR, DOMAIN
+from .const import DOMAIN, CONF_PROVIDER, CONF_MODEL_ID, CONF_BASE_URL, CONF_ORG_ID
 
+_LOGGER = logging.getLogger(__name__)
+
+# Keys to redact in the diagnostics data
+TO_REDACT = {CONF_API_KEY, "auth_token", "token", "password", "secret"}
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> Dict[str, Any]:
-    """Return diagnostics for a config entry.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry
-        
-    Returns:
-        Diagnostics data
-    """
-    # Get coordinator
-    coordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
-
-    # Get agent
-    agent = hass.data[DOMAIN][entry.entry_id][DATA_AGENT]
-
-    # Get metrics if available
-    metrics = {}
-    if hasattr(agent, "metrics"):
-        metrics = agent.metrics.get_metrics()
-
-    # Create diagnostics data
-    diagnostics = {
+    """Return diagnostics for a config entry."""
+    data = {
         "entry": {
             "entry_id": entry.entry_id,
             "version": entry.version,
             "domain": entry.domain,
             "title": entry.title,
-            "data": {
-                k: "***" if k in ["api_key", "auth_token"] else v
-                for k, v in entry.data.items()
-            },
-            "options": {
-                k: "***" if k in ["api_key", "auth_token"] else v
-                for k, v in entry.options.items()
-            },
+            "data": dict(entry.data),
+            "options": dict(entry.options),
+            "source": entry.source,
         },
-        "coordinator": {
-            "last_update_success": coordinator.last_update_success,
-            "last_update": coordinator.last_update.isoformat()
-            if coordinator.last_update
-            else None,
-            "data": coordinator.data,
-        },
-        "agent": {
-            "setup_done": agent._setup_done if hasattr(agent, "_setup_done") else False,
-            "conversation_count": len(agent.conversation_manager.conversations)
-            if hasattr(agent, "conversation_manager")
-            else 0,
-            "tool_count": len(agent.tool_registry._tools)
-            if hasattr(agent, "tool_registry")
-            else 0,
-        },
-        "metrics": metrics,
+        "provider": entry.data.get(CONF_PROVIDER),
+        "model_id": entry.data.get(CONF_MODEL_ID),
     }
-
-    return diagnostics
+    
+    # Get components from hass.data
+    if entry.entry_id in hass.data.get(DOMAIN, {}):
+        entry_data = hass.data[DOMAIN][entry.entry_id]
+        
+        # Add conversation statistics
+        conversation_manager = entry_data.get("conversation_manager")
+        if conversation_manager:
+            data["conversations"] = {
+                "count": len(conversation_manager.conversations),
+                "ids": conversation_manager.get_conversation_ids(),
+                "summaries": [
+                    {
+                        "id": conv_id,
+                        "metadata": conversation_manager.get_conversation_metadata(conv_id)
+                    }
+                    for conv_id in conversation_manager.get_conversation_ids()
+                ]
+            }
+            
+        # Add MCP server information
+        mcp_connector = entry_data.get("mcp_connector")
+        if mcp_connector:
+            data["mcp_servers"] = {
+                "connected_servers": mcp_connector.get_connected_servers(),
+                "connection_status": mcp_connector.get_connection_status(),
+                "tools_count": {
+                    server: len(tools)
+                    for server, tools in mcp_connector.tools_cache.items()
+                }
+            }
+            
+        # Add tool registry information
+        tool_registry = entry_data.get("tool_registry")
+        if tool_registry:
+            data["tools"] = {
+                "count": len(tool_registry._tools),
+                "names": list(tool_registry._tools.keys())
+            }
+            
+        # Add memory handler information
+        memory_handler = entry_data.get("memory_handler")
+        if memory_handler and hasattr(memory_handler, "get_stats"):
+            data["memory"] = memory_handler.get_stats()
+    
+    # Redact sensitive information
+    return async_redact_data(data, TO_REDACT)

@@ -10,7 +10,7 @@ The CortexAgent integration is built on a modular architecture with several key 
 2. **Conversation Manager**: Manages conversation history and pruning
 3. **Tool Registry**: Manages tool registration and execution
 4. **Memory Handler**: Handles memory storage and retrieval
-5. **MCP Connector**: Manages connections to MCP servers
+5. **MCP Connector**: Manages connections to MCP servers and tool execution
 6. **WebSocket API**: Provides real-time communication with the frontend
 7. **Frontend Components**: Custom Lovelace cards and panels
 
@@ -97,6 +97,74 @@ def register_my_tools(tool_registry) -> None:
 ```
 
 Then update the `register_built_in_tools` function in `tools/__init__.py` to include your new tool module.
+
+### Working with the MCP Connector
+
+The `MCPConnector` class manages connections to MCP servers and provides methods for executing tools. To work with the MCP connector:
+
+1. Access the connector from the integration's data:
+
+```python
+connector = hass.data[DOMAIN][entry.entry_id][DATA_MCP_CONNECTOR]
+```
+
+2. Connect to an MCP server:
+
+```python
+server_config = {
+    "name": "my-server",
+    "url": "http://localhost:8000/mcp",
+    "server_type": "sse",
+    "auth_token": "my-token",
+}
+await connector.async_connect(server_config)
+```
+
+3. Get available tools:
+
+```python
+# Get all tools from all servers
+all_tools = await connector.async_get_all_tools()
+
+# Get tools from a specific server
+server_tools = await connector.async_get_server_tools("my-server")
+```
+
+4. Execute a tool:
+
+```python
+result = await connector.async_execute_tool(
+    "my-server",
+    "my-tool",
+    {"param1": "value1", "param2": "value2"}
+)
+```
+
+5. Register a callback for tool execution:
+
+```python
+def my_callback(server_name, tool_name, arguments, result):
+    """Handle tool execution event."""
+    _LOGGER.info("Tool %s executed on server %s", tool_name, server_name)
+    
+connector.register_execution_callback("my-server", my_callback)
+```
+
+6. Disconnect from a server:
+
+```python
+await connector.async_disconnect("my-server")
+```
+
+The connector uses a context manager pattern when interacting with MCP clients to ensure proper resource management:
+
+```python
+with client:
+    # Perform operations with the client
+    result = client.some_operation()
+```
+
+This is particularly important for stdio servers where processes need to be properly terminated.
 
 ### Adding a New Frontend Component
 

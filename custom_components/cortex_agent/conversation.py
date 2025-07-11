@@ -195,8 +195,69 @@ class CortexAgent(conversation.AbstractConversationAgent):
                 response=response,
                 conversation_id=conversation_id,
             )
+        except ImportError as ex:
+            _LOGGER.error("Missing dependency: %s", ex)
+            response = intent.IntentResponse(
+                language=user_input.language,
+            )
+            response.response_type = intent.IntentResponseType.ERROR
+            response.error_code = intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+            response.async_set_speech(f"I'm sorry, a required dependency is missing: {str(ex)}")
+            
+            return conversation.ConversationResult(
+                response=response,
+                conversation_id=conversation_id,
+            )
+        except ConnectionError as ex:
+            _LOGGER.error("Connection error: %s", ex)
+            response = intent.IntentResponse(
+                language=user_input.language,
+            )
+            response.response_type = intent.IntentResponseType.ERROR
+            response.error_code = intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+            response.async_set_speech("I'm sorry, I encountered a connection error while processing your request.")
+            
+            return conversation.ConversationResult(
+                response=response,
+                conversation_id=conversation_id,
+            )
+        except TimeoutError as ex:
+            _LOGGER.error("Request timed out: %s", ex)
+            response = intent.IntentResponse(
+                language=user_input.language,
+            )
+            response.response_type = intent.IntentResponseType.ERROR
+            response.error_code = intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+            response.async_set_speech("I'm sorry, the request timed out while processing your request.")
+            
+            return conversation.ConversationResult(
+                response=response,
+                conversation_id=conversation_id,
+            )
+        except ValueError as ex:
+            _LOGGER.error("Invalid input or configuration: %s", ex)
+            response = intent.IntentResponse(
+                language=user_input.language,
+            )
+            response.response_type = intent.IntentResponseType.ERROR
+            response.error_code = intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+            response.async_set_speech("I'm sorry, there was an issue with the input or configuration.")
+            
+            return conversation.ConversationResult(
+                response=response,
+                conversation_id=conversation_id,
+            )
         except Exception as ex:
             _LOGGER.error("Error generating response: %s", ex)
+            
+            # Add error message to conversation history for debugging
+            error_message = Message(
+                role=MessageRole.SYSTEM,
+                content=f"Error: {str(ex)}",
+                metadata={"error": True, "error_type": type(ex).__name__}
+            )
+            self.conversation_manager.add_message(conversation_id, error_message)
+            
             response = intent.IntentResponse(
                 language=user_input.language,
             )

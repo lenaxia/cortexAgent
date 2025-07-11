@@ -213,6 +213,23 @@ The integration supports the Model Context Protocol (MCP) for connecting to exte
 
 MCP servers provide additional tools and resources that extend the agent's capabilities. The integration includes a robust connector system for managing these connections and executing tools.
 
+For detailed information about MCP server configuration and architecture, see:
+- [MCP Server Configuration](../../docs/mcp_servers.md)
+- [MCP Server Architecture](../../docs/mcp_server_architecture.md)
+
+The integration provides a dedicated Lovelace card for managing MCP servers:
+
+```yaml
+type: custom:cortex-mcp-servers-card
+entry_id: YOUR_ENTRY_ID
+```
+
+This card allows you to:
+- View connected MCP servers
+- Connect to new servers
+- Disconnect from existing servers
+- View available tools from each server
+
 ### Metrics and Telemetry
 
 The integration includes a metrics system that tracks:

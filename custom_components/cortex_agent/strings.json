@@ -2,136 +2,76 @@
   "config": {
     "step": {
       "user": {
-        "title": "Select Model Provider",
-        "description": "Choose the AI model provider for your CortexAgent",
+        "title": "Select Provider",
+        "description": "Choose the AI provider to use with Cortex Agent",
         "data": {
-          "provider": {
-            "options": {
-              "openai": "OpenAI",
-              "bedrock": "Amazon Bedrock",
-              "anthropic": "Anthropic",
-              "litellm": "LiteLLM (Custom Endpoint)"
-            }
-          }
+          "provider": "Provider"
         }
       },
       "provider": {
-        "title": "Configure Model Provider",
-        "description": "Configure the settings for your selected model provider",
+        "title": "Provider Configuration",
+        "description": "Configure the selected provider\n\n{provider_instructions}",
         "data": {
           "api_key": "API Key",
           "org_id": "Organization ID",
+          "model_id": "Model ID",
+          "base_url": "Base URL",
           "aws_profile": "AWS Profile",
-          "aws_region": {
-            "options": {
-              "us-east-1": "US East (N. Virginia)",
-              "us-east-2": "US East (Ohio)",
-              "us-west-1": "US West (N. California)",
-              "us-west-2": "US West (Oregon)",
-              "eu-west-1": "EU West (Ireland)",
-              "eu-central-1": "EU Central (Frankfurt)",
-              "ap-northeast-1": "Asia Pacific (Tokyo)",
-              "ap-southeast-1": "Asia Pacific (Singapore)",
-              "ap-southeast-2": "Asia Pacific (Sydney)"
-            }
-          },
-          "model_id": {
-            "options": {
-              "gpt-4o": "GPT-4o",
-              "gpt-4-turbo": "GPT-4 Turbo",
-              "gpt-4": "GPT-4",
-              "gpt-3.5-turbo": "GPT-3.5 Turbo",
-              "us.anthropic.claude-3-7-sonnet-20250219-v1:0": "Claude 3.7 Sonnet",
-              "us.anthropic.claude-3-5-sonnet-20240620-v1:0": "Claude 3.5 Sonnet",
-              "us.anthropic.claude-3-haiku-20240307-v1:0": "Claude 3 Haiku",
-              "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet",
-              "claude-3-5-sonnet-20240620": "Claude 3.5 Sonnet",
-              "claude-3-haiku-20240307": "Claude 3 Haiku"
-            }
-          },
+          "aws_region": "AWS Region"
+        }
+      },
+      "options": {
+        "title": "Cortex Agent Options",
+        "description": "Configure options for the Cortex Agent",
+        "data": {
           "system_prompt": "System Prompt",
           "max_tokens": "Maximum Tokens",
-          "temperature": "Temperature"
+          "temperature": "Temperature",
+          "memory_enabled": "Enable Memory"
         }
       }
     },
     "error": {
-      "invalid_api_key_format": "Invalid API key format",
-      "invalid_model_id": "Invalid model ID",
-      "invalid_max_tokens": "Invalid maximum tokens value",
-      "invalid_temperature": "Invalid temperature value",
-      "connection_error": "Failed to connect to the model provider",
-      "unknown": "Unexpected error occurred"
+      "provider_auth": "Authentication error with provider",
+      "missing_package": "Required package not installed",
+      "cannot_connect": "Failed to connect to provider",
+      "timeout_connect": "Connection timeout",
+      "invalid_auth": "Invalid authentication credentials",
+      "permission_error": "Permission error accessing provider",
+      "options_error": "Error validating options"
     },
     "abort": {
-      "already_configured": "This integration is already configured"
+      "already_configured": "This provider is already configured"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Basic Options",
-        "description": "Configure basic options for your CortexAgent",
+        "title": "Cortex Agent Options",
+        "description": "Configure options for the Cortex Agent",
         "data": {
-          "http_enabled": "Enable HTTP capabilities",
-          "listen_events": "Listen to Home Assistant events"
-        }
-      },
-      "model_options": {
-        "title": "Model Options",
-        "description": "Configure model options for your CortexAgent",
-        "data": {
-          "api_key": "API Key",
-          "org_id": "Organization ID",
-          "aws_profile": "AWS Profile",
-          "aws_region": {
-            "options": {
-              "us-east-1": "US East (N. Virginia)",
-              "us-east-2": "US East (Ohio)",
-              "us-west-1": "US West (N. California)",
-              "us-west-2": "US West (Oregon)",
-              "eu-west-1": "EU West (Ireland)",
-              "eu-central-1": "EU Central (Frankfurt)",
-              "ap-northeast-1": "Asia Pacific (Tokyo)",
-              "ap-southeast-1": "Asia Pacific (Singapore)",
-              "ap-southeast-2": "Asia Pacific (Sydney)"
-            }
-          },
-          "model_id": {
-            "options": {
-              "gpt-4o": "GPT-4o",
-              "gpt-4-turbo": "GPT-4 Turbo",
-              "gpt-4": "GPT-4",
-              "gpt-3.5-turbo": "GPT-3.5 Turbo",
-              "us.anthropic.claude-3-7-sonnet-20250219-v1:0": "Claude 3.7 Sonnet",
-              "us.anthropic.claude-3-5-sonnet-20240620-v1:0": "Claude 3.5 Sonnet",
-              "us.anthropic.claude-3-haiku-20240307-v1:0": "Claude 3 Haiku",
-              "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet",
-              "claude-3-5-sonnet-20240620": "Claude 3.5 Sonnet",
-              "claude-3-haiku-20240307": "Claude 3 Haiku"
-            }
-          },
           "system_prompt": "System Prompt",
           "max_tokens": "Maximum Tokens",
-          "temperature": "Temperature"
-        }
-      },
-      "memory_options": {
-        "title": "Memory Options",
-        "description": "Configure memory options for your CortexAgent",
-        "data": {
-          "memory_enabled": "Enable memory capabilities",
-          "user_id": "User ID for memory storage"
+          "temperature": "Temperature",
+          "memory_enabled": "Enable Memory"
         }
       }
     },
     "error": {
-      "invalid_api_key_format": "Invalid API key format",
-      "invalid_model_id": "Invalid model ID",
-      "invalid_max_tokens": "Invalid maximum tokens value",
-      "invalid_temperature": "Invalid temperature value",
-      "connection_error": "Failed to connect to the model provider",
-      "unknown": "Unexpected error occurred"
+      "options_error": "Error validating options"
     }
+  },
+  "reauth_confirm": {
+    "title": "Reauthenticate with {provider}",
+    "description": "{description}",
+    "data": {
+      "api_key": "API Key",
+      "org_id": "Organization ID (optional)",
+      "base_url": "Base URL"
+    }
+  },
+  "abort": {
+    "reauth_successful": "Reauthentication was successful",
+    "reauth_not_supported": "Reauthentication is not supported for this provider"
   }
 }

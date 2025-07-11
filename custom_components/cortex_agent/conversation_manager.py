@@ -30,6 +30,7 @@ class ConversationManager:
         max_conversations: int = 10,
         max_messages: int = 50,
         max_age_hours: int = 24,
+        prune_interval: int = 3600,  # 1 hour in seconds
         storage: Optional[Any] = None
     ):
         """Initialize the conversation manager."""
@@ -38,8 +39,12 @@ class ConversationManager:
         self.max_conversations = max_conversations
         self.max_messages = max_messages
         self.max_age_hours = max_age_hours
+        self.prune_interval = prune_interval
         self.conversations: Dict[str, Conversation] = {}
         self._loaded = False
+        self._prune_task = None
+        self._last_save_time = datetime.now()
+        self._save_interval = 300  # 5 minutes in seconds
         
         # Initialize storage
         from homeassistant.helpers.storage import Store
@@ -74,6 +79,11 @@ class ConversationManager:
             
         # Prune conversations if needed
         self._prune_conversations()
+        
+        # Schedule auto-save if enough time has passed since last save
+        now = datetime.now()
+        if (now - self._last_save_time).total_seconds() > self._save_interval:
+            self.hass.async_create_task(self.async_save())
     
     def get_conversation(self, conversation_id: str) -> List[Message]:
         """Get messages for a conversation."""
@@ -163,6 +173,7 @@ class ConversationManager:
         }
         
         await self.storage.async_save(data)
+        self._last_save_time = datetime.now()
     
     async def async_load(self) -> None:
         """Load conversations from storage."""
@@ -188,6 +199,9 @@ class ConversationManager:
                 )
         
         self._loaded = True
+        
+        # Start the background pruning task
+        self._start_pruning_task()
     
     def _prune_conversations(self) -> None:
         """Prune old conversations."""
@@ -215,6 +229,49 @@ class ConversationManager:
             # Keep only the newest conversations
             to_keep = sorted_convs[-self.max_conversations:]
             self.conversations = {k: v for k, v in to_keep}
+            
+    def _start_pruning_task(self) -> None:
+        """Start the background pruning task."""
+        if self._prune_task is not None:
+            self._stop_pruning_task()
+            
+        import asyncio
+        self._prune_task = asyncio.create_task(self._periodic_prune())
+        _LOGGER.debug("Started conversation pruning task")
+        
+    def _stop_pruning_task(self) -> None:
+        """Stop the background pruning task."""
+        if self._prune_task is not None and not self._prune_task.done():
+            self._prune_task.cancel()
+            self._prune_task = None
+            _LOGGER.debug("Stopped conversation pruning task")
+            
+    async def _periodic_prune(self) -> None:
+        """Periodically prune conversations and save to storage."""
+        import asyncio
+        try:
+            while True:
+                # Wait for the specified interval
+                await asyncio.sleep(self.prune_interval)
+                
+                # Prune conversations
+                self._prune_conversations()
+                _LOGGER.debug("Pruned conversations (periodic)")
+                
+                # Save to storage
+                await self.async_save()
+                _LOGGER.debug("Saved conversations (periodic)")
+                
+        except asyncio.CancelledError:
+            _LOGGER.debug("Conversation pruning task cancelled")
+            
+        except Exception as ex:
+            _LOGGER.error("Error in conversation pruning task: %s", ex)
+            
+    async def async_unload(self) -> None:
+        """Unload the conversation manager and stop background tasks."""
+        self._stop_pruning_task()
+        await self.async_save()
     
     def get_conversation_ids(self) -> List[str]:
         """Get all conversation IDs."""

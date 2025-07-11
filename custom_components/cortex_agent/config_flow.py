@@ -85,7 +85,7 @@ OPTIONS_SCHEMA = vol.Schema({
 class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for CortexAgent."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -123,20 +123,98 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Test connection to the provider
                 await self._test_connection(self.provider_config)
                 
-                # Create a unique ID for this entry
-                await self.async_set_unique_id(f"{DOMAIN}_{self.provider}")
+                # Create a unique ID for this entry that includes account-specific information
+                unique_id = None
+                
+                # Generate unique ID based on provider-specific information
+                if self.provider == PROVIDER_OPENAI:
+                    api_key = self.provider_config.get(CONF_API_KEY, "")
+                    org_id = self.provider_config.get(CONF_ORG_ID, "")
+                    # Include org_id in the unique ID if available
+                    if org_id:
+                        unique_id = f"{DOMAIN}_{self.provider}_{org_id}"
+                    else:
+                        # Use a hash of the API key to avoid storing sensitive data in the unique ID
+                        import hashlib
+                        unique_id = f"{DOMAIN}_{self.provider}_{hashlib.md5(api_key.encode()).hexdigest()[:8]}"
+                
+                elif self.provider == PROVIDER_ANTHROPIC:
+                    api_key = self.provider_config.get(CONF_API_KEY, "")
+                    # Use a hash of the API key
+                    import hashlib
+                    unique_id = f"{DOMAIN}_{self.provider}_{hashlib.md5(api_key.encode()).hexdigest()[:8]}"
+                
+                elif self.provider == PROVIDER_BEDROCK:
+                    aws_region = self.provider_config.get(CONF_AWS_REGION, "")
+                    aws_profile = self.provider_config.get(CONF_AWS_PROFILE, "default")
+                    # Combine region and profile for uniqueness
+                    unique_id = f"{DOMAIN}_{self.provider}_{aws_region}_{aws_profile}"
+                
+                elif self.provider == PROVIDER_LITELLM:
+                    api_key = self.provider_config.get(CONF_API_KEY, "")
+                    base_url = self.provider_config.get(CONF_BASE_URL, "")
+                    # Combine base URL and API key hash
+                    import hashlib
+                    url_hash = hashlib.md5(base_url.encode()).hexdigest()[:4]
+                    key_hash = hashlib.md5(api_key.encode()).hexdigest()[:4]
+                    unique_id = f"{DOMAIN}_{self.provider}_{url_hash}_{key_hash}"
+                
+                # Fallback to provider-only ID if we couldn't create a more specific one
+                if not unique_id:
+                    unique_id = f"{DOMAIN}_{self.provider}"
+                
+                await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
                 
                 # Return to the options step
                 return await self.async_step_options()
+            except ImportError as ex:
+                _LOGGER.error("Required package not installed: %s", ex)
+                errors["base"] = "missing_package"
+            except ConnectionError as ex:
+                _LOGGER.error("Connection error: %s", ex)
+                errors["base"] = "cannot_connect"
+            except TimeoutError as ex:
+                _LOGGER.error("Connection timeout: %s", ex)
+                errors["base"] = "timeout_connect"
+            except ValueError as ex:
+                _LOGGER.error("Invalid configuration value: %s", ex)
+                errors["base"] = "invalid_auth"
+            except PermissionError as ex:
+                _LOGGER.error("Permission error: %s", ex)
+                errors["base"] = "permission_error"
             except Exception as ex:
-                _LOGGER.error("Error validating provider configuration: %s", ex)
+                _LOGGER.error("Unexpected error validating provider configuration: %s", ex)
                 errors["base"] = "provider_auth"
 
+        # Create description with provider-specific instructions
+        description = None
+        if self.provider == PROVIDER_OPENAI:
+            description = (
+                "Enter your OpenAI API key and select a model. "
+                "You can find your API key at https://platform.openai.com/account/api-keys"
+            )
+        elif self.provider == PROVIDER_ANTHROPIC:
+            description = (
+                "Enter your Anthropic API key and select a model. "
+                "You can find your API key at https://console.anthropic.com/account/keys"
+            )
+        elif self.provider == PROVIDER_BEDROCK:
+            description = (
+                "Enter your AWS region and optionally an AWS profile name. "
+                "Make sure you have configured AWS credentials with access to Bedrock."
+            )
+        elif self.provider == PROVIDER_LITELLM:
+            description = (
+                "Enter your LiteLLM configuration details. "
+                "This requires a running LiteLLM server."
+            )
+            
         return self.async_show_form(
             step_id="provider",
             data_schema=PROVIDER_SCHEMA[self.provider],
             errors=errors,
+            description_placeholders={"provider_instructions": description} if description else None,
         )
 
     async def async_step_options(
@@ -149,12 +227,54 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.options = user_input
             
             # Create the config entry
+            # Store sensitive data in options for better security
+            data = {
+                CONF_PROVIDER: self.provider,
+            }
+            
+            # Move sensitive data to options for better security
+            if self.provider == PROVIDER_OPENAI:
+                # Keep API key in data for backward compatibility but mark it for secure storage
+                data[CONF_API_KEY] = self.provider_config.get(CONF_API_KEY)
+                data["_secure"] = True  # Mark for secure storage
+                
+                # Keep other non-sensitive data in data
+                if CONF_ORG_ID in self.provider_config:
+                    data[CONF_ORG_ID] = self.provider_config.get(CONF_ORG_ID)
+                if CONF_BASE_URL in self.provider_config:
+                    data[CONF_BASE_URL] = self.provider_config.get(CONF_BASE_URL)
+                if CONF_MODEL_ID in self.provider_config:
+                    data[CONF_MODEL_ID] = self.provider_config.get(CONF_MODEL_ID)
+                    
+            elif self.provider == PROVIDER_ANTHROPIC:
+                # Keep API key in data for backward compatibility but mark it for secure storage
+                data[CONF_API_KEY] = self.provider_config.get(CONF_API_KEY)
+                data["_secure"] = True  # Mark for secure storage
+                
+                # Keep other non-sensitive data in data
+                if CONF_BASE_URL in self.provider_config:
+                    data[CONF_BASE_URL] = self.provider_config.get(CONF_BASE_URL)
+                if CONF_MODEL_ID in self.provider_config:
+                    data[CONF_MODEL_ID] = self.provider_config.get(CONF_MODEL_ID)
+                    
+            elif self.provider == PROVIDER_LITELLM:
+                # Keep API key in data for backward compatibility but mark it for secure storage
+                data[CONF_API_KEY] = self.provider_config.get(CONF_API_KEY)
+                data["_secure"] = True  # Mark for secure storage
+                
+                # Keep other non-sensitive data in data
+                if CONF_BASE_URL in self.provider_config:
+                    data[CONF_BASE_URL] = self.provider_config.get(CONF_BASE_URL)
+                if CONF_MODEL_ID in self.provider_config:
+                    data[CONF_MODEL_ID] = self.provider_config.get(CONF_MODEL_ID)
+                    
+            else:
+                # For providers without sensitive data (like Bedrock)
+                data.update(self.provider_config)
+                
             return self.async_create_entry(
                 title=DEFAULT_NAME,
-                data={
-                    CONF_PROVIDER: self.provider,
-                    **self.provider_config,
-                },
+                data=data,
                 options=self.options,
             )
 
@@ -174,7 +294,12 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             True if connection is successful, False otherwise
             
         Raises:
-            Exception: If connection fails
+            ImportError: If required package is not installed
+            ConnectionError: If connection to provider fails
+            TimeoutError: If connection times out
+            ValueError: If configuration values are invalid
+            PermissionError: If permission is denied
+            Exception: For other unexpected errors
         """
         provider = provider_config.get(CONF_PROVIDER)
         
@@ -182,41 +307,77 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Test OpenAI connection
             api_key = provider_config.get(CONF_API_KEY)
             if not api_key:
-                raise Exception("OpenAI API key is required")
+                raise ValueError("OpenAI API key is required")
                 
             try:
                 import openai
+            except ImportError as ex:
+                _LOGGER.warning("OpenAI package not installed")
+                raise ImportError(f"OpenAI package not installed: {str(ex)}")
+                
+            try:
                 client = openai.OpenAI(api_key=api_key)
                 # Make a simple models.list call to test the connection
-                models = client.models.list()
-                _LOGGER.info("Successfully connected to OpenAI API")
-                return True
-            except ImportError:
-                _LOGGER.warning("OpenAI package not installed, skipping connection test")
-                return True
+                try:
+                    models = client.models.list()
+                    _LOGGER.info("Successfully connected to OpenAI API")
+                    return True
+                except openai.APIConnectionError as ex:
+                    _LOGGER.error("Failed to connect to OpenAI API: %s", str(ex))
+                    raise ConnectionError(f"Failed to connect to OpenAI API: {str(ex)}")
+                except openai.APITimeoutError as ex:
+                    _LOGGER.error("OpenAI API connection timed out: %s", str(ex))
+                    raise TimeoutError(f"OpenAI API connection timed out: {str(ex)}")
+                except openai.AuthenticationError as ex:
+                    _LOGGER.error("OpenAI API authentication failed: %s", str(ex))
+                    raise ValueError(f"OpenAI API authentication failed: {str(ex)}")
+                except openai.PermissionDeniedError as ex:
+                    _LOGGER.error("OpenAI API permission denied: %s", str(ex))
+                    raise PermissionError(f"OpenAI API permission denied: {str(ex)}")
+                except Exception as ex:
+                    _LOGGER.error("Unexpected error with OpenAI API: %s", str(ex))
+                    raise Exception(f"Unexpected error with OpenAI API: {str(ex)}")
             except Exception as ex:
-                _LOGGER.error("Failed to connect to OpenAI API: %s", str(ex))
-                raise Exception(f"Failed to connect to OpenAI API: {str(ex)}")
+                _LOGGER.error("Failed to initialize OpenAI client: %s", str(ex))
+                raise Exception(f"Failed to initialize OpenAI client: {str(ex)}")
                 
         elif provider == PROVIDER_ANTHROPIC:
             # Test Anthropic connection
             api_key = provider_config.get(CONF_API_KEY)
             if not api_key:
-                raise Exception("Anthropic API key is required")
+                raise ValueError("Anthropic API key is required")
                 
             try:
                 import anthropic
+            except ImportError as ex:
+                _LOGGER.warning("Anthropic package not installed")
+                raise ImportError(f"Anthropic package not installed: {str(ex)}")
+                
+            try:
                 client = anthropic.Anthropic(api_key=api_key)
                 # Make a simple models.list call to test the connection
-                models = client.models.list()
-                _LOGGER.info("Successfully connected to Anthropic API")
-                return True
-            except ImportError:
-                _LOGGER.warning("Anthropic package not installed, skipping connection test")
-                return True
+                try:
+                    models = client.models.list()
+                    _LOGGER.info("Successfully connected to Anthropic API")
+                    return True
+                except anthropic.APIConnectionError as ex:
+                    _LOGGER.error("Failed to connect to Anthropic API: %s", str(ex))
+                    raise ConnectionError(f"Failed to connect to Anthropic API: {str(ex)}")
+                except anthropic.APITimeoutError as ex:
+                    _LOGGER.error("Anthropic API connection timed out: %s", str(ex))
+                    raise TimeoutError(f"Anthropic API connection timed out: {str(ex)}")
+                except anthropic.AuthenticationError as ex:
+                    _LOGGER.error("Anthropic API authentication failed: %s", str(ex))
+                    raise ValueError(f"Anthropic API authentication failed: {str(ex)}")
+                except anthropic.PermissionDeniedError as ex:
+                    _LOGGER.error("Anthropic API permission denied: %s", str(ex))
+                    raise PermissionError(f"Anthropic API permission denied: {str(ex)}")
+                except Exception as ex:
+                    _LOGGER.error("Unexpected error with Anthropic API: %s", str(ex))
+                    raise Exception(f"Unexpected error with Anthropic API: {str(ex)}")
             except Exception as ex:
-                _LOGGER.error("Failed to connect to Anthropic API: %s", str(ex))
-                raise Exception(f"Failed to connect to Anthropic API: {str(ex)}")
+                _LOGGER.error("Failed to initialize Anthropic client: %s", str(ex))
+                raise Exception(f"Failed to initialize Anthropic client: {str(ex)}")
                 
         elif provider == PROVIDER_BEDROCK:
             # Test Bedrock connection
@@ -224,11 +385,15 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             aws_profile = provider_config.get(CONF_AWS_PROFILE)
             
             if not aws_region:
-                raise Exception("AWS region is required")
+                raise ValueError("AWS region is required")
                 
             try:
                 import boto3
+            except ImportError as ex:
+                _LOGGER.warning("boto3 package not installed")
+                raise ImportError(f"boto3 package not installed: {str(ex)}")
                 
+            try:
                 # Create session with profile if specified
                 if aws_profile:
                     session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
@@ -236,18 +401,35 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     session = boto3.Session(region_name=aws_region)
                     
                 # Create Bedrock client
-                client = session.client("bedrock-runtime")
-                
-                # List models to test connection
-                response = client.list_foundation_models()
-                _LOGGER.info("Successfully connected to AWS Bedrock")
-                return True
-            except ImportError:
-                _LOGGER.warning("boto3 package not installed, skipping connection test")
-                return True
+                try:
+                    client = session.client("bedrock-runtime")
+                    
+                    # List models to test connection
+                    try:
+                        response = client.list_foundation_models()
+                        _LOGGER.info("Successfully connected to AWS Bedrock")
+                        return True
+                    except client.exceptions.ValidationException as ex:
+                        _LOGGER.error("AWS Bedrock validation error: %s", str(ex))
+                        raise ValueError(f"AWS Bedrock validation error: {str(ex)}")
+                    except client.exceptions.AccessDeniedException as ex:
+                        _LOGGER.error("AWS Bedrock access denied: %s", str(ex))
+                        raise PermissionError(f"AWS Bedrock access denied: {str(ex)}")
+                    except client.exceptions.ThrottlingException as ex:
+                        _LOGGER.error("AWS Bedrock throttling error: %s", str(ex))
+                        raise ConnectionError(f"AWS Bedrock throttling error: {str(ex)}")
+                    except client.exceptions.InternalServerException as ex:
+                        _LOGGER.error("AWS Bedrock server error: %s", str(ex))
+                        raise ConnectionError(f"AWS Bedrock server error: {str(ex)}")
+                    except Exception as ex:
+                        _LOGGER.error("Unexpected error with AWS Bedrock: %s", str(ex))
+                        raise Exception(f"Unexpected error with AWS Bedrock: {str(ex)}")
+                except Exception as ex:
+                    _LOGGER.error("Failed to create AWS Bedrock client: %s", str(ex))
+                    raise ConnectionError(f"Failed to create AWS Bedrock client: {str(ex)}")
             except Exception as ex:
-                _LOGGER.error("Failed to connect to AWS Bedrock: %s", str(ex))
-                raise Exception(f"Failed to connect to AWS Bedrock: {str(ex)}")
+                _LOGGER.error("Failed to initialize AWS session: %s", str(ex))
+                raise Exception(f"Failed to initialize AWS session: {str(ex)}")
                 
         elif provider == PROVIDER_LITELLM:
             # Test LiteLLM connection
@@ -256,33 +438,53 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             model_id = provider_config.get(CONF_MODEL_ID)
             
             if not api_key:
-                raise Exception("API key is required for LiteLLM")
+                raise ValueError("API key is required for LiteLLM")
             if not base_url:
-                raise Exception("Base URL is required for LiteLLM")
+                raise ValueError("Base URL is required for LiteLLM")
             if not model_id:
-                raise Exception("Model ID is required for LiteLLM")
+                raise ValueError("Model ID is required for LiteLLM")
                 
             try:
                 import litellm
+            except ImportError as ex:
+                _LOGGER.warning("litellm package not installed")
+                raise ImportError(f"litellm package not installed: {str(ex)}")
                 
+            try:
                 # Configure LiteLLM
                 litellm.api_key = api_key
                 litellm.api_base = base_url
                 
                 # Make a simple completion call to test the connection
-                response = litellm.completion(
-                    model=model_id,
-                    messages=[{"role": "user", "content": "Hello"}],
-                    max_tokens=5
-                )
-                _LOGGER.info("Successfully connected to LiteLLM endpoint")
-                return True
-            except ImportError:
-                _LOGGER.warning("litellm package not installed, skipping connection test")
-                return True
+                try:
+                    response = litellm.completion(
+                        model=model_id,
+                        messages=[{"role": "user", "content": "Hello"}],
+                        max_tokens=5
+                    )
+                    _LOGGER.info("Successfully connected to LiteLLM endpoint")
+                    return True
+                except litellm.exceptions.AuthenticationError as ex:
+                    _LOGGER.error("LiteLLM authentication error: %s", str(ex))
+                    raise ValueError(f"LiteLLM authentication error: {str(ex)}")
+                except litellm.exceptions.BadRequestError as ex:
+                    _LOGGER.error("LiteLLM bad request: %s", str(ex))
+                    raise ValueError(f"LiteLLM bad request: {str(ex)}")
+                except litellm.exceptions.RateLimitError as ex:
+                    _LOGGER.error("LiteLLM rate limit exceeded: %s", str(ex))
+                    raise ConnectionError(f"LiteLLM rate limit exceeded: {str(ex)}")
+                except litellm.exceptions.ServiceUnavailableError as ex:
+                    _LOGGER.error("LiteLLM service unavailable: %s", str(ex))
+                    raise ConnectionError(f"LiteLLM service unavailable: {str(ex)}")
+                except litellm.exceptions.Timeout as ex:
+                    _LOGGER.error("LiteLLM request timed out: %s", str(ex))
+                    raise TimeoutError(f"LiteLLM request timed out: {str(ex)}")
+                except Exception as ex:
+                    _LOGGER.error("Unexpected error with LiteLLM: %s", str(ex))
+                    raise Exception(f"Unexpected error with LiteLLM: {str(ex)}")
             except Exception as ex:
-                _LOGGER.error("Failed to connect to LiteLLM endpoint: %s", str(ex))
-                raise Exception(f"Failed to connect to LiteLLM endpoint: {str(ex)}")
+                _LOGGER.error("Failed to configure LiteLLM: %s", str(ex))
+                raise Exception(f"Failed to configure LiteLLM: {str(ex)}")
         
         return True
 
@@ -293,6 +495,80 @@ class CortexAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
         return OptionsFlow(config_entry)
+        
+    async def async_step_reauth(self, user_input=None):
+        """Handle reauthorization request."""
+        self.provider = user_input[CONF_PROVIDER]
+        self.provider_config = user_input
+        
+        return await self.async_step_reauth_confirm()
+        
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Handle reauthorization confirmation."""
+        errors = {}
+        
+        if user_input is not None:
+            # Update the provider config with the new values
+            self.provider_config.update(user_input)
+            
+            try:
+                # Test the connection with the new credentials
+                await self._test_connection(self.provider_config)
+                
+                # Update the config entry with the new credentials
+                self.hass.config_entries.async_update_entry(
+                    self.context["entry_id"],
+                    data={**self.provider_config}
+                )
+                
+                # Reload the config entry to apply the changes
+                await self.hass.config_entries.async_reload(self.context["entry_id"])
+                
+                return self.async_abort(reason="reauth_successful")
+            except ImportError as ex:
+                _LOGGER.error("Required package not installed: %s", ex)
+                errors["base"] = "missing_package"
+            except ConnectionError as ex:
+                _LOGGER.error("Connection error: %s", ex)
+                errors["base"] = "cannot_connect"
+            except TimeoutError as ex:
+                _LOGGER.error("Connection timeout: %s", ex)
+                errors["base"] = "timeout_connect"
+            except ValueError as ex:
+                _LOGGER.error("Invalid configuration value: %s", ex)
+                errors["base"] = "invalid_auth"
+            except Exception as ex:
+                _LOGGER.error("Unexpected error during reauth: %s", ex)
+                errors["base"] = "provider_auth"
+                
+        # Create provider-specific schema for reauth
+        if self.provider == PROVIDER_OPENAI:
+            schema = vol.Schema({
+                vol.Required(CONF_API_KEY): str,
+                vol.Optional(CONF_ORG_ID): str,
+            })
+            description = "Please enter your new OpenAI API key"
+        elif self.provider == PROVIDER_ANTHROPIC:
+            schema = vol.Schema({
+                vol.Required(CONF_API_KEY): str,
+            })
+            description = "Please enter your new Anthropic API key"
+        elif self.provider == PROVIDER_LITELLM:
+            schema = vol.Schema({
+                vol.Required(CONF_API_KEY): str,
+                vol.Required(CONF_BASE_URL): str,
+            })
+            description = "Please enter your new LiteLLM API key and base URL"
+        else:
+            # For providers that don't need reauth (like Bedrock)
+            return self.async_abort(reason="reauth_not_supported")
+            
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"provider": self.provider, "description": description},
+        )
 
 
 class OptionsFlow(config_entries.OptionsFlow):

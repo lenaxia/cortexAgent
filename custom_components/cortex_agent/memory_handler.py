@@ -322,6 +322,34 @@ class MemoryHandler:
         except Exception as err:
             _LOGGER.error("Failed to clear memories: %s", str(err))
             return {"success": False, "error": str(err)}
+            
+    def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about the memory handler.
+        
+        Returns:
+            Dictionary with memory statistics
+        """
+        stats = {
+            "memory_count": len(self._cache),
+            "enabled": self.config.enabled if hasattr(self, "config") else False,
+            "loaded": self._loaded,
+        }
+        
+        # Add memory type information
+        if hasattr(self, "config") and hasattr(self.config, "memory_type"):
+            stats["memory_type"] = self.config.memory_type
+            
+        # Add timestamps of oldest and newest memories
+        if self._cache:
+            timestamps = [
+                datetime.fromisoformat(mem.get("timestamp", datetime.now().isoformat()))
+                for mem in self._cache.values()
+            ]
+            if timestamps:
+                stats["oldest_memory"] = min(timestamps).isoformat()
+                stats["newest_memory"] = max(timestamps).isoformat()
+                
+        return stats
 
 
 class JSONEncoder(json.JSONEncoder):
