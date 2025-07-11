@@ -24,6 +24,9 @@ from .const import (
 from .websocket_api import async_register_websocket_commands
 from .frontend import async_register_frontend, CortexAgentFrontendView
 
+# List of platforms the integration provides
+PLATFORMS = ["sensor", "binary_sensor"]
+
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -131,17 +134,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass=hass,
             )
         except ImportError as ex:
-            _LOGGER.error("Required package not installed for provider %s: %s", provider_type, ex)
-            raise ConfigEntryNotReady(f"Required package not installed: {ex}")
+            raise ConfigEntryNotReady(f"Required package not installed for provider {provider_type}: {ex}") from ex
         except ConnectionError as ex:
-            _LOGGER.error("Connection error with provider %s: %s", provider_type, ex)
-            raise ConfigEntryNotReady(f"Connection error: {ex}")
+            raise ConfigEntryNotReady(f"Connection error with provider {provider_type}: {ex}") from ex
         except ValueError as ex:
-            _LOGGER.error("Invalid configuration for provider %s: %s", provider_type, ex)
-            raise ConfigEntryAuthFailed(f"Invalid configuration: {ex}")
+            raise ConfigEntryAuthFailed(f"Invalid configuration for provider {provider_type}: {ex}") from ex
         except Exception as ex:
-            _LOGGER.error("Unexpected error creating model provider for %s: %s", provider_type, ex)
-            raise ConfigEntryNotReady(f"Unexpected error: {ex}")
+            _LOGGER.exception("Unexpected error creating model provider")
+            raise ConfigEntryNotReady(f"Unexpected error: {ex}") from ex
         
         # Create conversation manager
         try:
@@ -151,8 +151,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             await conversation_manager.async_load()
         except Exception as ex:
-            _LOGGER.error("Error initializing conversation manager: %s", ex)
-            raise ConfigEntryNotReady(f"Error initializing conversation manager: {ex}")
+            raise ConfigEntryNotReady(f"Error initializing conversation manager: {ex}") from ex
         
         # Create tool registry
         tool_registry = ToolRegistry(hass=hass)
@@ -167,8 +166,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
                 await memory_handler.async_load()
             except Exception as ex:
-                _LOGGER.error("Error initializing memory handler: %s", ex)
-                _LOGGER.warning("Continuing without memory handler")
+                _LOGGER.warning("Error initializing memory handler: %s - continuing without memory handler", ex)
                 memory_handler = None
         
         # Create MCP connector
@@ -176,8 +174,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             mcp_connector = MCPConnector(hass=hass, entry=entry)
             await mcp_connector.async_setup()
         except Exception as ex:
-            _LOGGER.error("Error initializing MCP connector: %s", ex)
-            _LOGGER.warning("Continuing without MCP connector")
+            _LOGGER.warning("Error initializing MCP connector: %s - continuing without MCP connector", ex)
             mcp_connector = None
         
         # Create agent
@@ -192,15 +189,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 mcp_connector=mcp_connector,
             )
         except Exception as ex:
-            _LOGGER.error("Error creating Cortex Agent: %s", ex)
-            raise ConfigEntryNotReady(f"Error creating Cortex Agent: {ex}")
+            raise ConfigEntryNotReady(f"Error creating Cortex Agent: {ex}") from ex
         
         # Register the agent as a conversation agent
         try:
             conversation_id = await hass.components.conversation.async_register(agent)
         except Exception as ex:
-            _LOGGER.error("Error registering conversation agent: %s", ex)
-            raise ConfigEntryNotReady(f"Error registering conversation agent: {ex}")
+            raise ConfigEntryNotReady(f"Error registering conversation agent: {ex}") from ex
         
         # Store components in hass.data
         hass.data[DOMAIN][entry.entry_id] = {
@@ -213,23 +208,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "mcp_connector": mcp_connector,
         }
         
+        # Set up platforms
+        try:
+            await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        except Exception as ex:
+            _LOGGER.warning("Error setting up platforms: %s", ex)
+            # Continue even if platform setup fails
+        
         _LOGGER.info("CortexAgent integration set up successfully")
         return True
         
-    except ConfigEntryNotReady as ex:
+    except ConfigEntryNotReady:
         # Let Home Assistant handle ConfigEntryNotReady
         raise
-    except ConfigEntryAuthFailed as ex:
+    except ConfigEntryAuthFailed:
         # Let Home Assistant handle ConfigEntryAuthFailed
         raise
     except Exception as ex:
-        _LOGGER.error("Unexpected error setting up CortexAgent integration: %s", ex)
-        return False
+        _LOGGER.exception("Unexpected error setting up CortexAgent integration")
+        # Raise ConfigEntryNotReady with the error message
+        raise ConfigEntryNotReady(f"Unexpected error: {ex}")
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if entry.entry_id not in hass.data[DOMAIN]:
         return True
+        
+    # Unload platforms
+    try:
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        if not unload_ok:
+            _LOGGER.warning("Failed to unload platforms")
+            # Continue anyway to clean up other resources
+    except Exception as ex:
+        _LOGGER.warning("Error unloading platforms: %s", ex)
+        # Continue anyway to clean up other resources
         
     entry_data = hass.data[DOMAIN][entry.entry_id]
     

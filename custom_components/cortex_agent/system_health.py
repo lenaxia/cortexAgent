@@ -1,57 +1,102 @@
-"""System health support for the CortexAgent integration."""
+"""System health for cortexAgent integration."""
 from __future__ import annotations
 
-from typing import Any, Dict
+import logging
+from typing import Any
 
 from homeassistant.components import system_health
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DATA_AGENT, DOMAIN
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+API_ENDPOINTS = {
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com",
+    "google": "https://generativelanguage.googleapis.com",
+    "aws": "https://bedrock-runtime.{region}.amazonaws.com",
+    "azure": "{base_url}",
+}
 
 
 @callback
-async def async_register(hass: HomeAssistant) -> None:
-    """Register system health callbacks.
+def async_register(
+    hass: HomeAssistant, register: system_health.SystemHealthRegistration
+) -> None:
+    """Register system health callbacks."""
+    register.async_register_info(system_health_info)
+
+
+async def system_health_info(hass: HomeAssistant) -> dict[str, Any]:
+    """Get info for the info page."""
+    info = {}
     
-    Args:
-        hass: Home Assistant instance
-    """
-    system_health.async_register_info(hass, DOMAIN, system_health_info)
-
-
-async def system_health_info(hass: HomeAssistant) -> Dict[str, Any]:
-    """Get system health information.
+    # Get the agent from hass.data
+    if DOMAIN not in hass.data:
+        return {
+            "agent_status": "not_configured",
+            "model_provider_status": "not_configured",
+            "memory_status": "not_configured",
+        }
     
-    Args:
-        hass: Home Assistant instance
-        
-    Returns:
-        System health information
-    """
-    # Count active agents
-    active_agents = 0
-    total_conversations = 0
-    total_tools = 0
-
-    for entry_id, data in hass.data.get(DOMAIN, {}).items():
-        agent = data.get(DATA_AGENT)
-        if agent and getattr(agent, "_setup_done", False):
-            active_agents += 1
-
-            # Count conversations if available
-            if hasattr(agent, "conversation_manager"):
-                total_conversations += len(agent.conversation_manager.conversations)
-
-            # Count tools if available
-            if hasattr(agent, "tool_registry"):
-                total_tools += len(agent.tool_registry._tools)
-
-    # Get version
-    version = "0.1.0"  # Replace with actual version detection
-
-    return {
-        "version": version,
-        "active_agents": active_agents,
-        "total_conversations": total_conversations,
-        "total_tools": total_tools,
-    }
+    # Get all config entries for the domain
+    entries = hass.data.get(DOMAIN, {})
+    if not entries:
+        return {
+            "agent_status": "not_configured",
+            "model_provider_status": "not_configured",
+            "memory_status": "not_configured",
+        }
+    
+    # Use the first entry for system health
+    for entry_id, entry_data in entries.items():
+        agent = entry_data.get("agent")
+        if agent:
+            # Agent status
+            info["agent_status"] = "active" if agent else "inactive"
+            
+            # Model provider status
+            if hasattr(agent, "model_provider"):
+                provider_name = getattr(agent.model_provider, "name", "unknown")
+                info["model_provider_status"] = provider_name
+                
+                # API connectivity check
+                if provider_name in API_ENDPOINTS:
+                    api_url = API_ENDPOINTS[provider_name]
+                    
+                    # Handle AWS region and Azure base URL
+                    if provider_name == "aws" and hasattr(agent.model_provider, "region"):
+                        api_url = api_url.format(region=agent.model_provider.region)
+                    elif provider_name == "azure" and hasattr(agent.model_provider, "base_url"):
+                        api_url = api_url.format(base_url=agent.model_provider.base_url)
+                    
+                    info["can_reach_provider_api"] = await system_health.async_check_can_reach_url(
+                        hass, api_url
+                    )
+            
+            # Memory status
+            if hasattr(agent, "memory_handler"):
+                info["memory_status"] = "enabled" if agent.memory_handler else "disabled"
+            else:
+                info["memory_status"] = "not_available"
+            
+            # Conversation count
+            if hasattr(agent, "conversation_manager") and hasattr(agent.conversation_manager, "conversations"):
+                info["conversation_count"] = len(agent.conversation_manager.conversations)
+            
+            # Tool count
+            if DOMAIN in hass.data and "tools" in hass.data[DOMAIN]:
+                info["tool_count"] = len(hass.data[DOMAIN]["tools"])
+            
+            # MCP servers
+            if "mcp_connector" in entry_data:
+                mcp_connector = entry_data["mcp_connector"]
+                if hasattr(mcp_connector, "get_connected_servers"):
+                    servers = mcp_connector.get_connected_servers()
+                    info["mcp_servers_connected"] = len(servers)
+            
+            # Only process the first active agent
+            break
+    
+    return info

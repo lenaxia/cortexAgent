@@ -13,6 +13,8 @@ The CortexAgent integration is built on a modular architecture with several key 
 5. **MCP Connector**: Manages connections to MCP servers and tool execution
 6. **WebSocket API**: Provides real-time communication with the frontend
 7. **Frontend Components**: Custom Lovelace cards and panels
+8. **Entity System**: Manages entity availability and state updates
+9. **System Health**: Provides integration health monitoring and diagnostics
 
 ## Extending the Integration
 
@@ -286,6 +288,94 @@ async def ws_my_command(
     connection.send_result(msg["id"], {"result": result})
 ```
 
+## Working with Entity Availability
+
+The integration implements a robust entity availability system through two main classes:
+
+### CortexAgentEntity
+
+The base entity class implements an `available` property that checks:
+
+```python
+@property
+def available(self) -> bool:
+    """Return if entity is available."""
+    # First check the parent class availability (coordinator.last_update_success)
+    if not super().available:
+        return False
+        
+    # Check if the coordinator has data
+    if not self.coordinator.data:
+        return False
+        
+    # Check if the agent is initialized
+    if not self.coordinator._agent:
+        return False
+        
+    return True
+```
+
+### CortexAgentServerEntity
+
+The server entity class extends the base availability check:
+
+```python
+@property
+def available(self) -> bool:
+    """Return if entity is available."""
+    # First check the parent class availability
+    if not super().available:
+        return False
+        
+    # Check if the server exists in the coordinator data
+    if not self.coordinator.data or "servers" not in self.coordinator.data:
+        return False
+        
+    # Check if the server is in the list of servers
+    if self._server_name not in self.coordinator.data["servers"]:
+        return False
+        
+    return True
+```
+
+When creating new entity types, extend one of these classes and override the `available` property if needed.
+
+## Working with System Health
+
+The integration supports Home Assistant's system health component through the `system_health.py` module:
+
+```python
+async def async_get_system_health_info(hass, controller):
+    """Get system health information."""
+    info = {
+        "agent_status": "active" if _is_agent_active(hass) else "inactive",
+        "model_provider": _get_model_provider_info(hass),
+        "mcp_servers": _get_mcp_servers_info(hass),
+    }
+    
+    # Add connectivity checks
+    for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+        if DATA_AGENT not in entry_data:
+            continue
+            
+        agent = entry_data[DATA_AGENT]
+        model_provider = entry_data.get("model_provider")
+        
+        if model_provider:
+            try:
+                await model_provider.async_validate_credentials()
+                info["model_provider_connection"] = "connected"
+            except Exception:
+                info["model_provider_connection"] = "disconnected"
+    
+    return info
+```
+
+To extend system health information:
+
+1. Add new keys to the info dictionary in `async_get_system_health_info`
+2. Add corresponding translations in `strings.json`
+
 ## Best Practices
 
 1. **Error Handling**: Use custom exceptions from `exceptions.py` for specific error cases
@@ -295,6 +385,8 @@ async def ws_my_command(
 5. **Constants**: Define constants in `const.py` rather than using magic values
 6. **Dependency Injection**: Use dependency injection to make components testable
 7. **Logging**: Use the logger for appropriate logging levels
+8. **Entity Availability**: Always implement proper availability checks for entities
+9. **System Health**: Add relevant health checks for new components
 
 ## Troubleshooting
 

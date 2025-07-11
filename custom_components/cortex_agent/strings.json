@@ -73,5 +73,17 @@
   "abort": {
     "reauth_successful": "Reauthentication was successful",
     "reauth_not_supported": "Reauthentication is not supported for this provider"
+  },
+  "system_health": {
+    "info": {
+      "api_connectivity": "API connectivity",
+      "model_provider_status": "Model provider status",
+      "memory_status": "Memory status",
+      "agent_status": "Agent status",
+      "can_reach_provider_api": "Can reach provider API",
+      "conversation_count": "Conversation count",
+      "tool_count": "Tool count",
+      "mcp_servers_connected": "MCP servers connected"
+    }
   }
 }

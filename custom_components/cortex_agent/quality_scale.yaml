@@ -1,0 +1,34 @@
+rules:
+  # Bronze tier rules
+  config_flow: done  # Based on manifest.json having "config_flow": true
+  brands: done  # Assuming the integration has proper branding
+  
+  # Rules that need assessment or implementation
+  action-setup: pending  # Need to check if actions are properly set up
+  appropriate-polling: pending  # Need to check polling implementation
+  common-modules: pending  # Need to check if common modules are organized properly
+  config-flow-test-coverage: pending  # Need to check test coverage for config flow
+  dependency-transparency: pending  # Need to check dependency handling
+  docs-actions: pending  # Need to check action documentation
+  docs-high-level-description: pending  # Need to check high-level documentation
+  docs-installation-instructions: pending  # Need to check installation instructions
+  docs-removal-instructions: pending  # Need to check removal instructions
+  entity-event-setup: pending  # Need to check entity event setup
+  entity-unique-id: pending  # Need to check if entities have unique IDs
+  has-entity-name: pending  # Need to check if entities have proper names
+  runtime-data: pending  # Need to check runtime data handling
+  test-before-configure: pending  # Need to check test coverage
+  test-before-setup: pending  # Need to check test coverage
+  unique-config-entry: pending  # Need to check config entry uniqueness
+
+  # Silver tier rules (for future implementation)
+  action-exceptions: pending  # Need to implement proper action exception handling
+  config-entry-unloading: pending  # Need to check config entry unloading
+  docs-configuration-parameters: pending  # Need to check configuration parameter documentation
+  docs-installation-parameters: pending  # Need to check installation parameter documentation
+  entity-unavailable: pending  # Need to implement proper entity unavailability handling
+  integration-owner: done  # Based on manifest.json having "codeowners"
+  log-when-unavailable: pending  # Need to check logging when unavailable
+  parallel-updates: pending  # Need to implement parallel updates
+  reauthentication-flow: pending  # Need to implement reauthentication flow
+  test-coverage: pending  # Need to improve test coverage
