@@ -1,0 +1,76 @@
+name: Auto Release on Version Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'custom_components/cortex_agent/manifest.json'
+
+jobs:
+  check-version-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 10  # Get more history to handle multiple commits
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(jq -r '.version' custom_components/cortex_agent/manifest.json)
+          echo "Current version: $CURRENT_VERSION"
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          TAG_NAME="v${{ steps.current_version.outputs.current_version }}"
+          echo "Checking if tag $TAG_NAME already exists..."
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME"; then
+            echo "Tag $TAG_NAME already exists, skipping release creation"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG_NAME does not exist yet"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get latest release version
+        id: latest_release
+        if: steps.check_release.outputs.tag_exists != 'true'
+        run: |
+          # Get the latest release tag
+          LATEST_TAG=$(git ls-remote --tags --refs --sort='-v:refname' origin | head -n1 | sed 's/.*refs\/tags\///')
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No previous releases found, using 0.0.0 as previous version"
+            echo "previous_version=0.0.0" >> $GITHUB_OUTPUT
+          else
+            # Remove 'v' prefix if present
+            PREVIOUS_VERSION=${LATEST_TAG#v}
+            echo "Latest release version: $PREVIOUS_VERSION"
+            echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release if version changed
+        if: |
+          steps.check_release.outputs.tag_exists != 'true' &&
+          steps.current_version.outputs.current_version != steps.latest_release.outputs.previous_version
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "CortexAgent v${{ steps.current_version.outputs.current_version }}"
+          tag_name: "v${{ steps.current_version.outputs.current_version }}"
+          body: |
+            # CortexAgent Release v${{ steps.current_version.outputs.current_version }}
+            
+            This release was automatically generated when the version was updated from ${{ steps.latest_release.outputs.previous_version }} to ${{ steps.current_version.outputs.current_version }}.
+            
+            ## Changes
+            
+            Please refer to the commit history for details on changes included in this release.
+          generate_release_notes: true
+          draft: false
+          prerelease: false

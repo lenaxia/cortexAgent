@@ -1,0 +1,116 @@
+name: Test Auto Release Workflow
+
+# This workflow can be triggered manually to test the auto-release logic
+on:
+  workflow_dispatch:
+    inputs:
+      test_version:
+        description: 'Test version to simulate (e.g., 0.2.1)'
+        required: true
+        default: '0.2.1'
+
+jobs:
+  test-version-detection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # We need at least the current and previous commit
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(jq -r '.version' custom_components/cortex_agent/manifest.json)
+          echo "Current version from manifest.json: $CURRENT_VERSION"
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Simulate version change
+        run: |
+          echo "Simulating version change to ${{ github.event.inputs.test_version }}"
+          # Create a temporary file with the new version
+          jq '.version = "${{ github.event.inputs.test_version }}"' custom_components/cortex_agent/manifest.json > temp.json
+          cat temp.json > custom_components/cortex_agent/manifest.json
+          rm temp.json
+          
+          # Show the updated manifest
+          echo "Updated manifest.json:"
+          cat custom_components/cortex_agent/manifest.json
+
+      - name: Get latest release version
+        id: latest_release
+        run: |
+          # Get the latest release tag
+          LATEST_TAG=$(git ls-remote --tags --refs --sort='-v:refname' origin | head -n1 | sed 's/.*refs\/tags\///')
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No previous releases found, using 0.0.0 as previous version"
+            PREVIOUS_VERSION="0.0.0"
+          else
+            # Remove 'v' prefix if present
+            PREVIOUS_VERSION=${LATEST_TAG#v}
+            echo "Latest release version: $PREVIOUS_VERSION"
+          fi
+          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Test version detection
+        id: test_detection
+        run: |
+          LATEST_VERSION="${{ steps.latest_release.outputs.previous_version }}"
+          NEW_VERSION="${{ github.event.inputs.test_version }}"
+          CURRENT_VERSION="${{ steps.current_version.outputs.current_version }}"
+          
+          echo "Current manifest version: $CURRENT_VERSION"
+          echo "Latest release version: $LATEST_VERSION"
+          echo "New test version: $NEW_VERSION"
+          
+          # Check if tag already exists
+          TAG_NAME="v$NEW_VERSION"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME"; then
+            echo "❌ Tag $TAG_NAME already exists, would skip release creation"
+            echo "would_create_release=false" >> $GITHUB_OUTPUT
+            echo "reason=tag_exists" >> $GITHUB_OUTPUT
+          elif [ "$LATEST_VERSION" = "$NEW_VERSION" ]; then
+            echo "❌ Version hasn't changed from latest release, would skip release creation"
+            echo "would_create_release=false" >> $GITHUB_OUTPUT
+            echo "reason=no_change" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Version change detected correctly!"
+            echo "would_create_release=true" >> $GITHUB_OUTPUT
+            echo "reason=version_changed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Simulate release creation
+        run: |
+          echo "======================================"
+          echo "RELEASE CREATION SIMULATION RESULTS"
+          echo "======================================"
+          
+          if [[ "${{ steps.test_detection.outputs.would_create_release }}" == "true" ]]; then
+            echo "✅ WOULD CREATE RELEASE"
+            echo "Tag: v${{ github.event.inputs.test_version }}"
+            echo "Name: CortexAgent v${{ github.event.inputs.test_version }}"
+            echo "Previous version: ${{ steps.latest_release.outputs.previous_version }}"
+            echo "New version: ${{ github.event.inputs.test_version }}"
+            echo "Body: Release notes for version ${{ github.event.inputs.test_version }}"
+          else
+            echo "❌ WOULD NOT CREATE RELEASE"
+            echo "Reason: ${{ steps.test_detection.outputs.reason }}"
+            
+            if [[ "${{ steps.test_detection.outputs.reason }}" == "tag_exists" ]]; then
+              echo "Tag v${{ github.event.inputs.test_version }} already exists"
+            elif [[ "${{ steps.test_detection.outputs.reason }}" == "no_change" ]]; then
+              echo "Version ${{ github.event.inputs.test_version }} matches latest release"
+            fi
+          fi
+          echo "======================================"
+
+      - name: Restore original manifest
+        run: |
+          # Restore the original version in manifest.json
+          jq '.version = "${{ steps.current_version.outputs.current_version }}"' custom_components/cortex_agent/manifest.json > temp.json
+          cat temp.json > custom_components/cortex_agent/manifest.json
+          rm temp.json
+          
+          echo "Restored original manifest.json:"
+          cat custom_components/cortex_agent/manifest.json
