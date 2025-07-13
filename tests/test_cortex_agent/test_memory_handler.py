@@ -11,7 +11,7 @@ from custom_components.cortex_agent.memory_handler import (
     MemoryConfig,
     JSONEncoder,
 )
-from custom_components.cortex_agent.exceptions import MemoryError
+from custom_components.cortex_agent.exceptions import CortexMemoryError as MemoryError
 
 
 @pytest.fixture

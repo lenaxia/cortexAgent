@@ -6,6 +6,7 @@ import json
 from json.decoder import JSONDecodeError
 import logging
 import os
+from pathlib import Path
 from typing import Any
 import uuid
 
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .exceptions import MemoryError
+from .exceptions import CortexMemoryError
 
 # Check if memory tools are available
 try:
@@ -279,16 +280,16 @@ class MemoryHandler:
         """Save memories to a file.
 
         Raises:
-            MemoryError: If there was an error saving the memories
+            CortexMemoryError: If there was an error saving the memories
         """
         try:
             # Get the path to the config directory
             config_dir = self.hass.config.path()
-            cortex_dir = os.path.join(config_dir, "cortex_agent")
+            cortex_dir = Path(config_dir) / "cortex_agent"
 
             # Create the directory if it doesn't exist
-            if not os.path.exists(cortex_dir):
-                os.makedirs(cortex_dir)
+            if not cortex_dir.exists():
+                cortex_dir.mkdir(parents=True)
 
             # Serialize the memories
             serialized_memories = {}
@@ -298,29 +299,29 @@ class MemoryHandler:
                     serialized_memories[agent_id][memory_id] = memory.to_dict()
 
             # Write the memories to a file
-            with open(os.path.join(cortex_dir, "memories.json"), "w") as f:
+            with (cortex_dir / "memories.json").open("w", encoding="utf-8") as f:
                 json.dump(serialized_memories, f)
         except Exception as err:
-            raise MemoryError(f"Failed to save memories: {err}") from err
+            raise CortexMemoryError(f"Failed to save memories: {err}") from err
 
     def load_from_file(self) -> None:
         """Load memories from a file.
 
         Raises:
-            MemoryError: If there was an error loading the memories
+            CortexMemoryError: If there was an error loading the memories
         """
         try:
             # Get the path to the config directory
             config_dir = self.hass.config.path()
-            cortex_dir = os.path.join(config_dir, "cortex_agent")
+            cortex_dir = Path(config_dir) / "cortex_agent"
 
             # Check if the file exists
-            file_path = os.path.join(cortex_dir, "memories.json")
-            if not os.path.exists(file_path):
+            file_path = cortex_dir / "memories.json"
+            if not file_path.exists():
                 return
 
             # Read the memories from the file
-            with open(file_path) as f:
+            with file_path.open(encoding="utf-8") as f:
                 serialized_memories = json.load(f)
 
             # Deserialize the memories
@@ -331,9 +332,9 @@ class MemoryHandler:
                 for memory_id, memory_data in agent_memories.items():
                     self.memories[agent_id][memory_id] = Memory.from_dict(memory_data)
         except JSONDecodeError as err:
-            raise MemoryError(f"Failed to parse memories file: {err}") from err
+            raise CortexMemoryError(f"Failed to parse memories file: {err}") from err
         except Exception as err:
-            raise MemoryError(f"Failed to load memories: {err}") from err
+            raise CortexMemoryError(f"Failed to load memories: {err}") from err
 
     async def async_store(self, content: str, metadata: dict | None = None) -> dict[str, Any]:
         """Store information in memory with persistence.
@@ -391,8 +392,6 @@ class MemoryHandler:
                     "memory_id": memory_id,
                     "timestamp": timestamp,
                 }
-
-            return {"success": False, "error": "Failed to store memory"}
         except ImportError as err:
             error_msg = f"Failed to import memory tools: {err}"
             _LOGGER.error(error_msg)
@@ -400,6 +399,8 @@ class MemoryHandler:
         except (ValueError, TypeError) as err:
             _LOGGER.error("Failed to store memory: %s", str(err))
             return {"success": False, "error": str(err)}
+        else:
+            return {"success": False, "error": "Failed to store memory"}
 
     async def async_retrieve(self, query: str) -> dict[str, Any]:
         """Retrieve information from memory based on query.
@@ -441,10 +442,10 @@ class MemoryHandler:
             content_text = result.content[0].text if result.content[0].text else "[]"
             try:
                 memories = json.loads(content_text)
-                self._update_cache_with_memories(memories)
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid memory format"}
             else:
+                self._update_cache_with_memories(memories)
                 return {"success": True, "memories": memories}
         except ImportError as err:
             _LOGGER.error("Failed to import memory tools: %s", str(err))
@@ -519,10 +520,10 @@ class MemoryHandler:
             content_text = result.content[0].text if result.content[0].text else "[]"
             try:
                 memories = json.loads(content_text)
-                self._update_cache_with_memories(memories)
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid memory format"}
             else:
+                self._update_cache_with_memories(memories)
                 return {"success": True, "memories": memories}
         except ImportError as err:
             _LOGGER.error("Failed to import memory tools: %s", str(err))
@@ -559,7 +560,13 @@ class MemoryHandler:
 
             # Call mem0_memory in executor to avoid blocking
             await self.hass.async_add_executor_job(mem0_memory, tool_use)
-
+        except ImportError as err:
+            _LOGGER.error("Failed to import memory tools: %s", str(err))
+            return {"success": False, "error": f"Failed to import memory tools: {err}"}
+        except (ValueError, TypeError) as err:
+            _LOGGER.error("Failed to clear memories: %s", str(err))
+            return {"success": False, "error": str(err)}
+        else:
             # Clear local cache
             self._cache = {}
 
@@ -568,12 +575,6 @@ class MemoryHandler:
 
             return {"success": True, "message": "All memories cleared"}
 
-        except ImportError as err:
-            _LOGGER.error("Failed to import memory tools: %s", str(err))
-            return {"success": False, "error": f"Failed to import memory tools: {err}"}
-        except (ValueError, TypeError) as err:
-            _LOGGER.error("Failed to clear memories: %s", str(err))
-            return {"success": False, "error": str(err)}
 
     def get_stats(self) -> dict[str, Any]:
         """Get statistics about the memory handler.

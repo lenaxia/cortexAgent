@@ -64,7 +64,7 @@ class MemoryOperationError(CortexAgentError):
 
 
 # Alias for backward compatibility
-MemoryError = MemoryOperationError
+CortexMemoryError = MemoryOperationError
 
 
 class ConfigurationError(CortexAgentError):

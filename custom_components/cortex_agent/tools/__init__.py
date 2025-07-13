@@ -8,6 +8,9 @@ from typing import Any
 from custom_components.cortex_agent.tool_registry import ToolRegistry
 from homeassistant.core import HomeAssistant
 
+# Only import HomeAssistantError as it's the only one used
+from homeassistant.exceptions import HomeAssistantError
+
 # Import tool registration functions
 from .ha_tools import register_ha_tools
 from .http_tools import register_http_tools

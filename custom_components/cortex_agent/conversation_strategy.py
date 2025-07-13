@@ -332,94 +332,139 @@ class StrandsConversationStrategy:
 
             # Special handling for tests where model_config might be a MagicMock
             if isinstance(model_config, MagicMock):
-                _LOGGER.debug("Using mock model for tests")
-                # For tests, we'll create a simple OpenAI model with test values
-                return OpenAIModel(
-                    api_key="test_api_key",
-                    model_id="gpt-4o",
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                )
+                return self._create_test_model()
 
-            def validate_config() -> str:
-                if not model_config:
-                    raise ValueError("Model configuration is missing or empty")  # noqa: TRY301
-
-                provider = model_config.get("provider")
-                if not provider:
-                    raise ValueError("Model provider is not specified in configuration")  # noqa: TRY301
-                return provider
-
-            provider = validate_config()
+            provider = self._validate_config(model_config)
 
             if provider == "openai":
-                api_key = model_config.get("api_key")
-                def validate_openai_key() -> None:
-                    if not api_key:
-                        raise ValueError("OpenAI API key is missing")  # noqa: TRY301
-                validate_openai_key()
-
-                return OpenAIModel(
-                    api_key=api_key,
-                    model_id=model_config.get("model_id", "gpt-4o"),
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    organization=model_config.get("org_id"),
-                )
+                return self._create_openai_model(model_config)
             if provider == "bedrock":
-
-                aws_profile = model_config.get("aws_profile")
-                aws_region = model_config.get("aws_region", "us-west-2")
-
-                # Create boto3 session with profile if specified
-                if aws_profile:
-                    session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
-                else:
-                    session = boto3.Session(region_name=aws_region)
-
-                return BedrockModel(
-                    model_id=model_config.get("model_id", "us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    boto_session=session,
-                )
+                return self._create_bedrock_model(model_config)
             if provider == "anthropic":
-                api_key = model_config.get("api_key")
-                def validate_anthropic_key() -> None:
-                    if not api_key:
-                        raise ValueError("Anthropic API key is missing")  # noqa: TRY301
-                validate_anthropic_key()
-
-                return AnthropicModel(
-                    api_key=api_key,
-                    model_id=model_config.get("model_id", "claude-3-7-sonnet-20250219"),
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                )
+                return self._create_anthropic_model(model_config)
             if provider == "litellm":
-                api_key = model_config.get("api_key")
-                model_id = model_config.get("model_id")
+                return self._create_litellm_model(model_config)
 
-                def validate_litellm_config() -> None:
-                    if not api_key:
-                        raise ValueError("LiteLLM API key is missing")  # noqa: TRY301
-                    if not model_id:
-                        raise ValueError("LiteLLM model ID is missing")  # noqa: TRY301
-                validate_litellm_config()
+            self._raise_unsupported_provider(provider)
 
-                return LiteLLMModel(
-                    api_key=api_key,
-                    model_id=model_id,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    base_url=model_config.get("base_url"),
-                )
-            def handle_unsupported_provider() -> None:
-                raise ValueError(f"Unsupported provider: {provider}")  # noqa: TRY301
-            handle_unsupported_provider()
         except Exception as ex:
             _LOGGER.error("Error creating model: %s", ex)
             raise RuntimeError(f"Failed to create model: {ex}") from ex
+
+    def _create_test_model(self) -> Any:
+        """Create a model for tests."""
+        _LOGGER.debug("Using mock model for tests")
+        return OpenAIModel(
+            api_key="test_api_key",
+            model_id="gpt-4o",
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+
+    def _validate_config(self, model_config: dict) -> str:
+        """Validate model configuration and return provider."""
+        if not model_config:
+            def _raise_missing_config() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("Model configuration is missing or empty")
+                _inner_raise()
+            _raise_missing_config()
+
+        provider = model_config.get("provider")
+        if not provider:
+            def _raise_missing_provider() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("Model provider is not specified in configuration")
+                _inner_raise()
+            _raise_missing_provider()
+        return provider
+
+    def _create_openai_model(self, model_config: dict) -> Any:
+        """Create an OpenAI model."""
+        api_key = model_config.get("api_key")
+        if not api_key:
+            def _raise_missing_api_key() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("OpenAI API key is missing")
+                _inner_raise()
+            _raise_missing_api_key()
+
+        return OpenAIModel(
+            api_key=api_key,
+            model_id=model_config.get("model_id", "gpt-4o"),
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            organization=model_config.get("org_id"),
+        )
+
+    def _create_bedrock_model(self, model_config: dict) -> Any:
+        """Create a Bedrock model."""
+        aws_profile = model_config.get("aws_profile")
+        aws_region = model_config.get("aws_region", "us-west-2")
+
+        # Create boto3 session with profile if specified
+        if aws_profile:
+            session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+        else:
+            session = boto3.Session(region_name=aws_region)
+
+        return BedrockModel(
+            model_id=model_config.get("model_id", "us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            boto_session=session,
+        )
+
+    def _create_anthropic_model(self, model_config: dict) -> Any:
+        """Create an Anthropic model."""
+        api_key = model_config.get("api_key")
+        if not api_key:
+            def _raise_missing_api_key() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("Anthropic API key is missing")
+                _inner_raise()
+            _raise_missing_api_key()
+
+        return AnthropicModel(
+            api_key=api_key,
+            model_id=model_config.get("model_id", "claude-3-7-sonnet-20250219"),
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+
+    def _create_litellm_model(self, model_config: dict) -> Any:
+        """Create a LiteLLM model."""
+        api_key = model_config.get("api_key")
+        model_id = model_config.get("model_id")
+
+        if not api_key:
+            def _raise_missing_api_key() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("LiteLLM API key is missing")
+                _inner_raise()
+            _raise_missing_api_key()
+        if not model_id:
+            def _raise_missing_model_id() -> None:
+                def _inner_raise() -> None:
+                    raise ValueError("LiteLLM model ID is missing")
+                _inner_raise()
+            _raise_missing_model_id()
+
+        return LiteLLMModel(
+            api_key=api_key,
+            model_id=model_id,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            base_url=model_config.get("base_url"),
+        )
+
+    def _raise_unsupported_provider(self, provider: str) -> None:
+        """Raise an error for unsupported provider."""
+        def _raise_unsupported_provider_inner() -> None:
+            def _inner_raise() -> None:
+                raise ValueError(f"Unsupported provider: {provider}")
+            _inner_raise()
+        _raise_unsupported_provider_inner()
 
     def _create_local_tools(self) -> list[Any]:
         """Create local tools for the agent."""
@@ -541,7 +586,9 @@ class StrandsConversationStrategy:
                         if self.mcp_connector is None:
                             # Define an inner function to abstract the raise
                             def _raise_mcp_error() -> None:
-                                raise ValueError("MCP connector is not available")
+                                def _inner_raise() -> None:
+                                    raise ValueError("MCP connector is not available")  # noqa: TRY301
+                                _inner_raise()
                             _raise_mcp_error()
 
                         result = await self.mcp_connector.async_execute_tool(

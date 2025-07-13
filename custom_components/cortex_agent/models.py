@@ -85,6 +85,7 @@ class MCPServerConfig(BaseModel):
     enabled: bool = Field(default=True, description="Whether this server is enabled")
 
     @field_validator('url')
+    @classmethod
     def validate_url(cls, v: str) -> str:
         """Validate URL format."""
         if not v.startswith(('http://', 'https://', 'ws://', 'wss://')):
@@ -132,25 +133,25 @@ class IModelProvider(Protocol):
     @property
     def provider_type(self) -> ModelProviderType:
         """Get the provider type."""
-        ...
+        raise NotImplementedError
 
     @property
     def name(self) -> str:
         """Get the provider name."""
-        ...
+        raise NotImplementedError
 
     @property
     def connected(self) -> bool:
         """Check if provider is connected."""
-        ...
+        raise NotImplementedError
 
     async def generate_response(self, messages: list[dict[str, Any]], tools: list[Any] | None = None) -> dict[str, Any]:
         """Generate a response from the model."""
-        ...
+        raise NotImplementedError
 
     async def test_connection(self) -> bool:
         """Test the connection to the provider."""
-        ...
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -159,27 +160,27 @@ class IConversationManager(Protocol):
 
     def add_entry(self, role: ConversationRole, content: str, metadata: dict[str, Any] | None = None) -> None:
         """Add an entry to the conversation."""
-        ...
+        raise NotImplementedError
 
     def get_history(self, limit: int | None = None) -> list[ConversationEntry]:
         """Get conversation history."""
-        ...
+        raise NotImplementedError
 
     def get_formatted_history(self) -> list[dict[str, Any]]:
         """Get formatted history for model consumption."""
-        ...
+        raise NotImplementedError
 
     def clear_history(self) -> None:
         """Clear conversation history."""
-        ...
+        raise NotImplementedError
 
     async def save(self) -> None:
         """Save conversation to storage."""
-        ...
+        raise NotImplementedError
 
     async def load(self) -> None:
         """Load conversation from storage."""
-        ...
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -188,19 +189,19 @@ class IToolManager(Protocol):
 
     async def get_available_tools(self) -> list[Any]:
         """Get all available tools."""
-        ...
+        raise NotImplementedError
 
     async def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
         """Execute a tool with given arguments."""
-        ...
+        raise NotImplementedError
 
     def register_tool(self, tool_name: str, tool_function: Any, metadata: ToolMetadata | None = None) -> None:
         """Register a new tool."""
-        ...
+        raise NotImplementedError
 
     def unregister_tool(self, tool_name: str) -> bool:
         """Unregister a tool."""
-        ...
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -209,23 +210,23 @@ class IMCPConnector(Protocol):
 
     async def connect(self, config: MCPServerConfig) -> bool:
         """Connect to an MCP server."""
-        ...
+        raise NotImplementedError
 
     async def disconnect(self, server_name: str) -> bool:
         """Disconnect from an MCP server."""
-        ...
+        raise NotImplementedError
 
     async def get_available_tools(self, server_name: str | None = None) -> list[Any]:
         """Get available tools from MCP servers."""
-        ...
+        raise NotImplementedError
 
     async def execute_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
         """Execute a tool on an MCP server."""
-        ...
+        raise NotImplementedError
 
     def get_connected_servers(self) -> list[str]:
         """Get list of connected server names."""
-        ...
+        raise NotImplementedError
 
 
 @runtime_checkable
@@ -234,19 +235,19 @@ class IMemoryHandler(Protocol):
 
     async def store(self, content: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         """Store information in memory."""
-        ...
+        raise NotImplementedError
 
     async def retrieve(self, query: str) -> dict[str, Any]:
         """Retrieve information from memory based on query."""
-        ...
+        raise NotImplementedError
 
     async def list_all(self) -> dict[str, Any]:
         """List all stored memories."""
-        ...
+        raise NotImplementedError
 
     async def clear(self) -> dict[str, Any]:
         """Clear all stored memories."""
-        ...
+        raise NotImplementedError
 
 
 class AgentMetrics(BaseModel):
