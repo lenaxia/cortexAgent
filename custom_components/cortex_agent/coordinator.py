@@ -2,25 +2,23 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import timedelta
-from typing import Any, Dict, TypeVar, Generic
+import logging
+from typing import Any, TypeVar
 
-import async_timeout
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, DEFAULT_NAME
+from .const import DEFAULT_NAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(minutes=5)
 TIMEOUT = 10
 
-T = TypeVar("T", bound=Dict[str, Any])
+T = TypeVar("T", bound=dict[str, Any])
 
 class CortexAgentCoordinator(DataUpdateCoordinator[T]):
     """Class to manage fetching data from the agent."""
@@ -40,7 +38,7 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
             config_entry=entry,
             always_update=False,  # Only update if data has changed
         )
-        
+
         self.entry = entry
         self.retry_attempts = retry_attempts
         self._agent = None
@@ -48,20 +46,20 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
 
     async def _async_setup(self) -> None:
         """Set up the coordinator.
-        
+
         This is called automatically during async_config_entry_first_refresh.
         """
         if DOMAIN in self.hass.data and self.entry.entry_id in self.hass.data[DOMAIN]:
             entry_data = self.hass.data[DOMAIN][self.entry.entry_id]
             self._agent = entry_data.get("agent")
             self._mcp_connector = entry_data.get("mcp_connector")
-            
+
             _LOGGER.debug("Coordinator setup complete with agent: %s", self._agent is not None)
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from agent and connected MCP servers."""
         try:
-            async with async_timeout.timeout(TIMEOUT):
+            async with asyncio.timeout(TIMEOUT):
                 data = {
                     "status": "active",
                     "last_update": dt_util.utcnow().isoformat(),
@@ -75,14 +73,14 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
                     "conversation_count": 0,
                     "tool_count": 0,
                 }
-                
+
                 # Get agent data if available
                 if self._agent:
                     data["provider"] = getattr(self._agent.model_provider, "name", None) if hasattr(self._agent, "model_provider") else None
                     data["model"] = getattr(self._agent.model_provider, "model_id", None) if hasattr(self._agent, "model_provider") else None
                     data["memory_enabled"] = getattr(self._agent, "memory_handler", None) is not None
                     data["conversation_count"] = len(getattr(self._agent.conversation_manager, "conversations", {})) if hasattr(self._agent, "conversation_manager") else 0
-                    
+
                 # Get connected MCP servers and tools from hass data
                 if DOMAIN in self.hass.data:
                     domain_data = self.hass.data[DOMAIN]
@@ -90,7 +88,7 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
                     tools = domain_data.get("tools", {})
                     data["tools"] = tools
                     data["tool_count"] = len(tools)
-                    
+
                     # Get MCP server data
                     if self._mcp_connector:
                         try:
@@ -99,38 +97,37 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
                                 server_info = await self._get_server_info(server_name)
                                 if server_info:
                                     data["servers"][server_name] = server_info
-                        except Exception as err:
+                        except (ConnectionError, TimeoutError, ValueError, AttributeError) as err:
                             _LOGGER.debug("Error getting MCP server data: %s", err)
-                
+
                 return data
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise UpdateFailed(f"Timeout error fetching data: {err}") from err
         except Exception as err:
             _LOGGER.exception("Unexpected error updating coordinator data")
             raise UpdateFailed(f"Error fetching data: {err}") from err
-            
-    async def _get_server_info(self, server_name: str) -> Dict[str, Any]:
+
+    async def _get_server_info(self, server_name: str) -> dict[str, Any]:
         """Get information about an MCP server with retry logic."""
         if not self._mcp_connector:
             return None
-            
+
         server = self._mcp_connector.get_server(server_name)
         if not server:
             return None
-            
+
         status = "error"
         tools = []
-        
+
         # Try to get server status
         for attempt in range(self.retry_attempts):
             try:
                 if hasattr(server, 'get_status'):
                     status = await server.get_status()
                     break
-                else:
-                    status = "error"
-                    break
-            except Exception as err:
+                status = "error"
+                break
+            except (ConnectionError, TimeoutError, ValueError, AttributeError) as err:
                 _LOGGER.debug(
                     "Error checking server %s status (attempt %d/%d): %s",
                     server_name,
@@ -140,15 +137,15 @@ class CortexAgentCoordinator(DataUpdateCoordinator[T]):
                 )
                 if attempt == self.retry_attempts - 1:
                     status = "error"
-                    
+
         # Only proceed to tools fetch if status check succeeded
         if status == "connected":
             try:
                 if hasattr(server, 'get_tools'):
                     tools = await server.get_tools()
-            except Exception as err:
+            except (ConnectionError, TimeoutError, ValueError, AttributeError) as err:
                 _LOGGER.debug("Error getting tools for server %s: %s", server_name, err)
-                
+
         return {
             "status": status,
             "last_seen": dt_util.utcnow().isoformat(),

@@ -1,29 +1,29 @@
 """Built-in tools for CortexAgent."""
 from __future__ import annotations
 
+from collections.abc import Callable
 import logging
-from typing import Any, Callable, Dict, List, Optional
-from unittest.mock import MagicMock
+from typing import Any
 
+from custom_components.cortex_agent.tool_registry import ToolRegistry
 from homeassistant.core import HomeAssistant
+
+# Import tool registration functions
+from .ha_tools import register_ha_tools
+from .http_tools import register_http_tools
+from .utility_tools import register_utility_tools
 
 _LOGGER = logging.getLogger(__name__)
 
 # Type definitions
-ToolFunction = Callable[[HomeAssistant, Dict[str, Any]], Dict[str, Any]]
+ToolFunction = Callable[[HomeAssistant, dict[str, Any]], dict[str, Any]]
 
-# Import functions from ha_tools.py
-from .ha_tools import (
-    get_entity_state,
-    call_service,
-    get_entities,
-)
 
 # Define wrapper functions for test compatibility
-async def ha_get_state(hass: HomeAssistant, entity_id: Optional[str] = None, domain: Optional[str] = None) -> Dict[str, Any]:
+async def ha_get_state(hass: HomeAssistant, entity_id: str | None = None, domain: str | None = None) -> dict[str, Any]:
     """Wrapper for get_entity_state that accepts keyword arguments and formats results as expected by tests."""
     result = {}
-    
+
     # Handle single entity case
     if entity_id:
         state = hass.states.get(entity_id)
@@ -36,7 +36,7 @@ async def ha_get_state(hass: HomeAssistant, entity_id: Optional[str] = None, dom
         else:
             result[entity_id] = None
         return result
-    
+
     # Handle domain or all states case
     if domain:
         states = hass.states.async_all(domain)
@@ -48,10 +48,10 @@ async def ha_get_state(hass: HomeAssistant, entity_id: Optional[str] = None, dom
             "attributes": dict(state.attributes),
             "last_updated": state.last_updated.isoformat(),
         }
-    
+
     return result
 
-async def ha_call_service(hass: HomeAssistant, domain: str, service: str, service_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def ha_call_service(hass: HomeAssistant, domain: str, service: str, service_data: dict[str, Any] | None = None) -> dict[str, Any]:
     """Wrapper for call_service that accepts keyword arguments."""
     try:
         await hass.services.async_call(
@@ -60,11 +60,6 @@ async def ha_call_service(hass: HomeAssistant, domain: str, service: str, servic
             service_data or {},
             blocking=True
         )
-        return {
-            "success": True,
-            "domain": domain,
-            "service": service,
-        }
     except Exception as ex:
         _LOGGER.error("Error calling service: %s", ex)
         return {
@@ -73,33 +68,33 @@ async def ha_call_service(hass: HomeAssistant, domain: str, service: str, servic
             "service": service,
             "error": str(ex),
         }
+    else:
+        return {
+            "success": True,
+            "domain": domain,
+            "service": service,
+        }
 
-async def ha_get_entities(hass: HomeAssistant, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+async def ha_get_entities(hass: HomeAssistant, domain: str | None = None) -> list[dict[str, Any]]:
     """Get a list of entities."""
-    result = []
     if domain:
         states = hass.states.async_all(domain)
     else:
         states = hass.states.async_all()
-    
-    for state in states:
-        result.append({
+
+    return [
+        {
             "entity_id": state.entity_id,
             "state": state.state,
             "attributes": dict(state.attributes),
-        })
-    
-    return result
+        }
+        for state in states
+    ]
 
-async def ha_set_state(hass: HomeAssistant, entity_id: str, state: str, attributes: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def ha_set_state(hass: HomeAssistant, entity_id: str, state: str, attributes: dict[str, Any] | None = None) -> dict[str, Any]:
     """Set the state of an entity."""
     try:
         await hass.states.async_set(entity_id, state, attributes or {})
-        return {
-            "success": True,
-            "entity_id": entity_id,
-            "state": state,
-        }
     except Exception as ex:
         _LOGGER.error("Error setting state: %s", ex)
         return {
@@ -107,12 +102,18 @@ async def ha_set_state(hass: HomeAssistant, entity_id: str, state: str, attribut
             "entity_id": entity_id,
             "error": str(ex),
         }
+    else:
+        return {
+            "success": True,
+            "entity_id": entity_id,
+            "state": state,
+        }
 
-async def ha_get_services(hass: HomeAssistant, domain: Optional[str] = None) -> Dict[str, Any]:
+async def ha_get_services(hass: HomeAssistant, domain: str | None = None) -> dict[str, Any]:
     """Get available services."""
     # Get services (MagicMock in tests, coroutine in real usage)
     services_obj = hass.services.async_services()
-    
+
     # Handle both MagicMock and coroutine cases
     if callable(getattr(services_obj, "return_value", None)):
         # This is a MagicMock
@@ -124,18 +125,14 @@ async def ha_get_services(hass: HomeAssistant, domain: Optional[str] = None) -> 
         except TypeError:
             # If it's not awaitable, just use it directly
             services = services_obj
-    
+
     # Return the requested domain or all services
     if domain:
         return {domain: services.get(domain, {})}
     return services
 
-def register_built_in_tools(tool_registry) -> None:
+def register_built_in_tools(tool_registry: ToolRegistry) -> None:
     """Register all built-in tools with the tool registry."""
-    from .ha_tools import register_ha_tools
-    from .http_tools import register_http_tools
-    from .utility_tools import register_utility_tools
-    
     # Register all tool categories
     register_ha_tools(tool_registry)
     register_http_tools(tool_registry)

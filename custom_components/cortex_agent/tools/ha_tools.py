@@ -2,22 +2,24 @@
 from __future__ import annotations
 
 import logging
-import json
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, TypeVar
 
-from homeassistant.core import HomeAssistant, Context
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import area_registry as ar
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceNotFound, TemplateError
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
+from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.template import Template
-from homeassistant.exceptions import TemplateError
-from homeassistant.components import light, switch, climate, cover, media_player
 
 _LOGGER = logging.getLogger(__name__)
 
+T = TypeVar("T")
 
-def register_ha_tools(tool_registry) -> None:
+
+def register_ha_tools(tool_registry: Any) -> None:
     """Register Home Assistant tools with the tool registry."""
     # Entity tools
     tool_registry.register_tool(
@@ -32,7 +34,7 @@ def register_ha_tools(tool_registry) -> None:
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="call_service",
         description="Call a Home Assistant service",
@@ -57,7 +59,7 @@ def register_ha_tools(tool_registry) -> None:
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="get_entities",
         description="Get a list of entities matching a filter",
@@ -78,7 +80,7 @@ def register_ha_tools(tool_registry) -> None:
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="render_template",
         description="Render a Home Assistant template",
@@ -91,7 +93,7 @@ def register_ha_tools(tool_registry) -> None:
         },
         category="home_assistant",
     )
-    
+
     # Domain-specific tools
     tool_registry.register_tool(
         name="turn_on_light",
@@ -121,7 +123,7 @@ def register_ha_tools(tool_registry) -> None:
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="set_climate",
         description="Set climate device parameters",
@@ -148,16 +150,14 @@ def register_ha_tools(tool_registry) -> None:
     )
 
 
-async def get_entity_state(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def get_entity_state(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Get the state of a Home Assistant entity."""
-    entity_id = args.get("entity_id")
-    if not entity_id:
+    if not (entity_id := args.get("entity_id")):
         return {"error": "entity_id is required"}
-        
-    state = hass.states.get(entity_id)
-    if not state:
+
+    if not (state := hass.states.get(entity_id)):
         return {"error": f"Entity {entity_id} not found"}
-        
+
     return {
         "entity_id": entity_id,
         "state": state.state,
@@ -167,19 +167,19 @@ async def get_entity_state(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[st
     }
 
 
-async def call_service(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def call_service(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Call a Home Assistant service."""
     domain = args.get("domain")
     service = args.get("service")
     service_data = args.get("service_data", {})
     target = args.get("target", {})
-    
+
     if not domain:
         return {"error": "domain is required"}
-        
+
     if not service:
         return {"error": "service is required"}
-    
+
     try:
         await hass.services.async_call(
             domain=domain,
@@ -189,32 +189,37 @@ async def call_service(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, A
             blocking=True,
             context=Context(),
         )
-        
+    except ServiceNotFound as ex:
+        _LOGGER.error("Service %s.%s not found: %s", domain, service, ex)
         return {
-            "success": True,
-            "domain": domain,
-            "service": service,
-            "service_data": service_data,
-            "target": target,
+            "error": f"Service {domain}.{service} not found: {ex!s}",
         }
-    except Exception as ex:
+    except HomeAssistantError as ex:
         _LOGGER.error("Error calling service %s.%s: %s", domain, service, ex)
         return {
-            "error": f"Error calling service {domain}.{service}: {str(ex)}",
+            "error": f"Error calling service {domain}.{service}: {ex!s}",
         }
 
+    return {
+        "success": True,
+        "domain": domain,
+        "service": service,
+        "service_data": service_data,
+        "target": target,
+    }
 
-async def get_entities(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+
+async def get_entities(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Get a list of entities matching a filter."""
     domain = args.get("domain")
     area_name = args.get("area")
     device_name = args.get("device")
-    
+
     # Get registries
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     area_registry = ar.async_get(hass)
-    
+
     # Filter by area if specified
     area_id = None
     if area_name:
@@ -222,10 +227,10 @@ async def get_entities(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, A
             if area.name.lower() == area_name.lower():
                 area_id = area.id
                 break
-        
+
         if not area_id:
             return {"error": f"Area '{area_name}' not found"}
-    
+
     # Filter by device if specified
     device_id = None
     if device_name:
@@ -233,41 +238,40 @@ async def get_entities(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, A
             if device.name and device.name.lower() == device_name.lower():
                 device_id = device.id
                 break
-        
+
         if not device_id:
             return {"error": f"Device '{device_name}' not found"}
-    
+
     # Filter entities
     entities = []
     for entity_entry in entity_registry.entities.values():
         # Skip disabled entities
         if entity_entry.disabled:
             continue
-            
+
         # Filter by domain
         if domain and not entity_entry.entity_id.startswith(f"{domain}."):
             continue
-            
+
         # Filter by device
         if device_id and entity_entry.device_id != device_id:
             continue
-            
+
         # Filter by area
         if area_id:
             entity_area_id = entity_entry.area_id
             if not entity_area_id and entity_entry.device_id:
-                device = device_registry.async_get(entity_entry.device_id)
-                if device:
+                device: DeviceEntry | None = device_registry.async_get(entity_entry.device_id)
+                if device is not None:
                     entity_area_id = device.area_id
-                    
+
             if entity_area_id != area_id:
                 continue
-        
+
         # Get state
-        state = hass.states.get(entity_entry.entity_id)
-        if not state:
+        if not (state := hass.states.get(entity_entry.entity_id)):
             continue
-            
+
         # Add entity to results
         entities.append({
             "entity_id": entity_entry.entity_id,
@@ -277,63 +281,60 @@ async def get_entities(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, A
             "device_id": entity_entry.device_id,
             "area_id": entity_entry.area_id,
         })
-    
+
     return {
         "entities": entities,
         "count": len(entities),
     }
 
 
-async def render_template(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def render_template(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Render a Home Assistant template."""
-    template_str = args.get("template")
-    if not template_str:
+    if not (template_str := args.get("template")):
         return {"error": "template is required"}
-    
+
     try:
         template = Template(template_str, hass)
         result = template.async_render()
-        
-        return {
-            "result": result,
-        }
     except TemplateError as ex:
         _LOGGER.error("Error rendering template: %s", ex)
         return {
-            "error": f"Error rendering template: {str(ex)}",
+            "error": f"Error rendering template: {ex!s}",
         }
 
+    return {
+        "result": result,
+    }
 
-async def turn_on_light(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+
+async def turn_on_light(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Turn on a light with specific attributes."""
-    entity_id = args.get("entity_id")
-    if not entity_id:
+    if not (entity_id := args.get("entity_id")):
         return {"error": "entity_id is required"}
-    
+
     # Check if entity exists and is a light
-    state = hass.states.get(entity_id)
-    if not state:
+    if not hass.states.get(entity_id):
         return {"error": f"Entity {entity_id} not found"}
-        
+
     if not entity_id.startswith("light."):
         return {"error": f"Entity {entity_id} is not a light"}
-    
+
     # Prepare service data
     service_data = {"entity_id": entity_id}
-    
+
     # Add optional parameters
     if "brightness" in args:
         service_data["brightness"] = args["brightness"]
-        
+
     if "color_name" in args:
         service_data["color_name"] = args["color_name"]
-        
+
     if "rgb_color" in args:
         service_data["rgb_color"] = args["rgb_color"]
-        
+
     if "color_temp" in args:
         service_data["color_temp"] = args["color_temp"]
-    
+
     try:
         await hass.services.async_call(
             domain="light",
@@ -342,37 +343,43 @@ async def turn_on_light(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, 
             blocking=True,
             context=Context(),
         )
-        
+
         # Get updated state
-        updated_state = hass.states.get(entity_id)
-        
+        if not (updated_state := hass.states.get(entity_id)):
+            return {
+                "error": f"Failed to get updated state for {entity_id}",
+            }
+    except ServiceNotFound as ex:
+        _LOGGER.error("Light service not found: %s", ex)
         return {
-            "success": True,
-            "entity_id": entity_id,
-            "state": updated_state.state,
-            "attributes": dict(updated_state.attributes),
+            "error": f"Light service not found: {ex!s}",
         }
-    except Exception as ex:
+    except HomeAssistantError as ex:
         _LOGGER.error("Error turning on light %s: %s", entity_id, ex)
         return {
-            "error": f"Error turning on light {entity_id}: {str(ex)}",
+            "error": f"Error turning on light {entity_id}: {ex!s}",
         }
 
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "state": updated_state.state,
+        "attributes": dict(updated_state.attributes),
+    }
 
-async def set_climate(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+
+async def set_climate(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Set climate device parameters."""
-    entity_id = args.get("entity_id")
-    if not entity_id:
+    if not (entity_id := args.get("entity_id")):
         return {"error": "entity_id is required"}
-    
+
     # Check if entity exists and is a climate device
-    state = hass.states.get(entity_id)
-    if not state:
+    if not hass.states.get(entity_id):
         return {"error": f"Entity {entity_id} not found"}
-        
+
     if not entity_id.startswith("climate."):
         return {"error": f"Entity {entity_id} is not a climate device"}
-    
+
     # Handle different parameters with separate service calls
     try:
         # Set HVAC mode if specified
@@ -387,7 +394,7 @@ async def set_climate(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, An
                 blocking=True,
                 context=Context(),
             )
-        
+
         # Set temperature if specified
         if "temperature" in args:
             await hass.services.async_call(
@@ -400,7 +407,7 @@ async def set_climate(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, An
                 blocking=True,
                 context=Context(),
             )
-        
+
         # Set preset mode if specified
         if "preset_mode" in args:
             await hass.services.async_call(
@@ -413,18 +420,25 @@ async def set_climate(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, An
                 blocking=True,
                 context=Context(),
             )
-        
+
         # Get updated state
-        updated_state = hass.states.get(entity_id)
-        
+        if not (updated_state := hass.states.get(entity_id)):
+            return {
+                "error": f"Failed to get updated state for {entity_id}",
+            }
+    except ServiceNotFound as ex:
+        _LOGGER.error("Climate service not found: %s", ex)
         return {
-            "success": True,
-            "entity_id": entity_id,
-            "state": updated_state.state,
-            "attributes": dict(updated_state.attributes),
+            "error": f"Climate service not found: {ex!s}",
         }
-    except Exception as ex:
+    except HomeAssistantError as ex:
         _LOGGER.error("Error setting climate parameters for %s: %s", entity_id, ex)
         return {
-            "error": f"Error setting climate parameters for {entity_id}: {str(ex)}",
+            "error": f"Error setting climate parameters for {entity_id}: {ex!s}",
         }
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "state": updated_state.state,
+        "attributes": dict(updated_state.attributes),
+    }

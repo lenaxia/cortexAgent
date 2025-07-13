@@ -115,3 +115,7 @@ ATTR_URL: Final = "url"
 SERVER_TYPE_SSE: Final = "sse"
 SERVER_TYPE_STREAMABLE_HTTP: Final = "streamable_http"
 SERVER_TYPE_STDIO: Final = "stdio"
+
+# Tool types
+TOOL_TYPE_FUNCTION: Final = "function"
+TOOL_TYPE_MODULE: Final = "module"

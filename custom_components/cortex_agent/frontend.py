@@ -2,16 +2,12 @@
 from __future__ import annotations
 
 import logging
-import os
+from pathlib import Path
 from typing import Final
-
-import voluptuous as vol
 
 from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.components.http.data_validator import RequestDataValidator
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 
@@ -38,18 +34,18 @@ def async_register_frontend(hass: HomeAssistant) -> None:
     # Register the frontend resources
     hass.http.register_static_path(
         FRONTEND_SCRIPT_URL,
-        os.path.join(os.path.dirname(__file__), "frontend/index.js"),
+        str(Path(__file__).parent / "frontend/index.js"),
         True,
     )
 
     # Register the frontend components
-    for component in ["cortex-conversation-card", "cortex-tools-card", "cortex-mcp-servers-card"]:
+    for component in ("cortex-conversation-card", "cortex-tools-card", "cortex-mcp-servers-card"):
         filename = f"{component}.js"
         url = f"/frontend_es5/{DOMAIN}/{filename}"
-        filepath = os.path.join(os.path.dirname(__file__), f"frontend/{filename}")
-        
-        if os.path.exists(filepath):
-            hass.http.register_static_path(url, filepath, True)
+        filepath = Path(__file__).parent / f"frontend/{filename}"
+
+        if filepath.exists():
+            hass.http.register_static_path(url, str(filepath), True)
         else:
             _LOGGER.error("Frontend component file not found: %s", filepath)
 
@@ -68,7 +64,7 @@ class CortexAgentFrontendView(HomeAssistantView):
         """Initialize the view."""
         self.hass = hass
 
-    async def get(self, request):
+    async def get(self, _request):
         """Handle GET requests."""
         return self.json({
             "panels": [

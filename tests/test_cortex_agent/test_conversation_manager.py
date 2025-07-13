@@ -18,43 +18,65 @@ from custom_components.cortex_agent.conversation_manager import (
 def mock_hass():
     """Mock Home Assistant instance."""
     hass = MagicMock(spec=HomeAssistant)
+    hass.data = {}
+    # Mock config for Store
+    mock_config = MagicMock()
+    mock_config.config_dir = "/tmp"
+    hass.config = mock_config
+    # Mock loop for async operations
+    hass.loop = MagicMock()
+    # Mock state for async_save
+    hass.state = "running"
     return hass
 
 
 @pytest.fixture
 def mock_store():
     """Mock Store."""
-    with patch("homeassistant.helpers.storage.Store") as mock_class:
-        store_instance = MagicMock()
-        store_instance.async_load = AsyncMock(return_value=None)
-        store_instance.async_save = AsyncMock()
-        mock_class.return_value = store_instance
+    store_instance = MagicMock()
+    store_instance.async_load = AsyncMock(return_value=None)
+    store_instance.async_save = AsyncMock()
+    
+    with patch("homeassistant.helpers.storage.Store", return_value=store_instance) as mock_class:
         yield mock_class
 
 
 @pytest.fixture
 def conversation_manager(mock_hass, mock_store):
     """Create a conversation manager."""
-    return ConversationManager(
+    # Create a mock storage instance directly
+    storage_mock = MagicMock()
+    storage_mock.async_load = AsyncMock(return_value=None)
+    storage_mock.async_save = AsyncMock()
+    
+    # Create the conversation manager with the mock storage
+    manager = ConversationManager(
         hass=mock_hass,
         entry_id="test-entry-id",
         max_conversations=3,
         max_messages=5,
         max_age_hours=24,
+        storage=storage_mock
     )
+    
+    return manager
 
 
 class TestConversationManager:
     """Test the conversation manager."""
 
-    def test_init(self, mock_hass, mock_store):
+    def test_init(self, mock_hass):
         """Test initialization."""
+        # Create a storage mock to verify it's used
+        storage_mock = MagicMock()
+        
         manager = ConversationManager(
             hass=mock_hass,
             entry_id="test-entry-id",
             max_conversations=3,
             max_messages=5,
             max_age_hours=24,
+            storage=storage_mock
         )
         
         assert manager.hass == mock_hass
@@ -64,8 +86,7 @@ class TestConversationManager:
         assert manager.max_age_hours == 24
         assert manager.conversations == {}
         assert manager._loaded is False
-        
-        mock_store.assert_called_once()
+        assert manager.storage == storage_mock
 
     async def test_async_load_empty(self, conversation_manager):
         """Test loading when storage is empty."""
@@ -79,7 +100,7 @@ class TestConversationManager:
     async def test_async_load_with_data(self, conversation_manager):
         """Test loading with data in storage."""
         # Set up mock data
-        conversation_manager.storage.async_load.return_value = {
+        mock_data = {
             "conversations": {
                 "conv1": {
                     "messages": [
@@ -99,6 +120,8 @@ class TestConversationManager:
                 }
             }
         }
+        # Configure the mock to return our data
+        conversation_manager.storage.async_load.return_value = mock_data
         
         # Load
         await conversation_manager.async_load()

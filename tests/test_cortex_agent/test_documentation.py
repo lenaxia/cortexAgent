@@ -30,11 +30,17 @@ def mock_tool_registry():
     """Mock tool registry."""
     registry = MagicMock()
     registry.get_categories = MagicMock(return_value=["category1", "category2"])
+    registry.get_category_tools = MagicMock(side_effect=lambda category: {
+        "category1": ["tool1", "tool2"],
+        "category2": ["tool3"],
+    }.get(category, []))
     registry._categories = {
         "category1": ["tool1", "tool2"],
         "category2": ["tool3"],
     }
-    registry._tools = {
+    
+    # Define tool data
+    tool_data = {
         "tool1": {
             "metadata": {
                 "name": "Tool 1",
@@ -77,6 +83,9 @@ def mock_tool_registry():
             }
         },
     }
+    
+    # Set up get_tool to return the appropriate tool data
+    registry.get_tool = MagicMock(side_effect=lambda tool_id: tool_data.get(tool_id))
     return registry
 
 

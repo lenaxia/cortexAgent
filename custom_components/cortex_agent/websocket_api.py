@@ -2,20 +2,19 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
+
 import voluptuous as vol
-from typing import Any, Callable, Dict, List, Optional
 
-from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import websocket_api
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.components.websocket_api.connection import ActiveConnection
-from homeassistant.components.websocket_api.const import ERR_NOT_FOUND
 
-from .const import (
-    DOMAIN,
-    DATA_AGENT,
-    DATA_COORDINATOR,
-)
+from .const import DATA_AGENT, DOMAIN
+
+# Use the component root for imports
+ActiveConnection = websocket_api.connection.ActiveConnection
+ERR_NOT_FOUND = websocket_api.const.ERR_NOT_FOUND
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,31 +42,31 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 })
 @callback
 async def ws_get_conversations(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Get all conversations for an agent."""
     entry_id = msg["entry_id"]
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     agent = agent_data.get(DATA_AGENT)
-    
+
     if not agent or not hasattr(agent, "conversation_manager"):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Conversation manager not found")
         return
-    
+
     # Get all conversation IDs and metadata
     conversations = []
     for conversation_id in agent.conversation_manager.get_conversation_ids():
         # Get first and last message for preview
         history = agent.conversation_manager.get_conversation(conversation_id)
-        
+
         first_message = history[0].content if history else ""
         last_message = history[-1].content if history else ""
-        
+
         conversations.append({
             "id": conversation_id,
             "first_message": first_message[:100] + "..." if len(first_message) > 100 else first_message,
@@ -76,7 +75,7 @@ async def ws_get_conversations(
             "created_at": agent.conversation_manager.get_conversation_metadata(conversation_id).get("created_at"),
             "updated_at": agent.conversation_manager.get_conversation_metadata(conversation_id).get("updated_at"),
         })
-    
+
     connection.send_result(msg["id"], {"conversations": conversations})
 
 
@@ -87,40 +86,41 @@ async def ws_get_conversations(
 })
 @callback
 async def ws_get_conversation_history(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Get conversation history."""
     entry_id = msg["entry_id"]
     conversation_id = msg["conversation_id"]
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     agent = agent_data.get(DATA_AGENT)
-    
+
     if not agent or not hasattr(agent, "conversation_manager"):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Conversation manager not found")
         return
-    
+
     # Get conversation history
     history = agent.conversation_manager.get_conversation(conversation_id)
     if not history:
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Conversation not found")
         return
-    
+
     # Convert to serializable format
-    messages = []
-    for message in history:
-        messages.append({
+    messages = [
+        {
             "role": message.role.value,
             "content": message.content,
             "timestamp": message.timestamp.isoformat() if hasattr(message, "timestamp") else None,
-        })
-    
+        }
+        for message in history
+    ]
+
     metadata = agent.conversation_manager.get_conversation_metadata(conversation_id)
-    
+
     connection.send_result(msg["id"], {
         "conversation_id": conversation_id,
         "messages": messages,
@@ -135,23 +135,23 @@ async def ws_get_conversation_history(
 })
 @callback
 async def ws_clear_conversation(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Clear a conversation or all conversations."""
     entry_id = msg["entry_id"]
     conversation_id = msg.get("conversation_id")
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     agent = agent_data.get(DATA_AGENT)
-    
+
     if not agent or not hasattr(agent, "conversation_manager"):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Conversation manager not found")
         return
-    
+
     try:
         if conversation_id:
             # Clear specific conversation
@@ -159,12 +159,13 @@ async def ws_clear_conversation(
         else:
             # Clear all conversations
             await agent.conversation_manager.clear_all_conversations()
-            
+
         # Save changes
         await agent.conversation_manager.async_save()
-        
+
         connection.send_result(msg["id"], {"success": True})
-    except Exception as ex:
+    except Exception as ex:  # pylint: disable=broad-except # noqa: BLE001
+        # We need to catch all exceptions to ensure the websocket command doesn't fail completely
         _LOGGER.error("Error clearing conversation: %s", ex)
         connection.send_error(msg["id"], "server_error", str(ex))
 
@@ -176,39 +177,40 @@ async def ws_clear_conversation(
 })
 @callback
 async def ws_get_tools(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Get available tools."""
     entry_id = msg["entry_id"]
     category = msg.get("category")
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     agent = agent_data.get(DATA_AGENT)
-    
+
     if not agent or not hasattr(agent, "tool_registry"):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Tool registry not found")
         return
-    
+
     # Get tools
     if category:
         tools = agent.tool_registry.get_tools_by_category(category)
     else:
         tools = agent.tool_registry.get_all_tools()
-    
+
     # Convert to serializable format
-    tool_list = []
-    for tool in tools:
-        tool_list.append({
+    tool_list = [
+        {
             "name": tool["name"],
             "description": tool["description"],
             "parameters": tool["parameters"],
             "category": tool["category"],
-        })
-    
+        }
+        for tool in tools
+    ]
+
     connection.send_result(msg["id"], {"tools": tool_list})
 
 
@@ -218,45 +220,46 @@ async def ws_get_tools(
 })
 @callback
 async def ws_get_mcp_servers(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Get connected MCP servers."""
     entry_id = msg["entry_id"]
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     mcp_connector = agent_data.get("mcp_connector")
-    
+
     if not mcp_connector:
         connection.send_error(msg["id"], ERR_NOT_FOUND, "MCP connector not found")
         return
-    
+
     # Get connected servers
     server_names = mcp_connector.get_connected_servers()
-    
+
     # Get tools for each server
     servers = []
     for server_name in server_names:
         tools = await mcp_connector.async_get_server_tools(server_name)
-        
+
         # Convert tools to serializable format
-        tool_list = []
-        for tool in tools:
-            tool_list.append({
+        tool_list = [
+            {
                 "name": tool.tool_name,
                 "description": tool.description,
                 "parameters": tool.parameters,
-            })
-        
+            }
+            for tool in tools
+        ]
+
         servers.append({
             "name": server_name,
             "tools": tool_list,
             "tool_count": len(tool_list),
         })
-    
+
     connection.send_result(msg["id"], {"servers": servers})
 
 
@@ -266,22 +269,22 @@ async def ws_get_mcp_servers(
 })
 @callback
 async def ws_get_agent_status(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Get agent status."""
     entry_id = msg["entry_id"]
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-        
+
     agent_data = hass.data[DOMAIN][entry_id]
     agent = agent_data.get(DATA_AGENT)
-    
+
     if not agent:
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-    
+
     # Get status information
     status = {
         "provider": agent.model_provider.__class__.__name__,
@@ -292,7 +295,7 @@ async def ws_get_agent_status(
         "memory_count": len(await agent.memory_handler.get_all_memories()) if agent.memory_handler else 0,
         "mcp_server_count": len(agent.mcp_connector.get_connected_servers()) if agent.mcp_connector else 0,
     }
-    
+
     connection.send_result(msg["id"], {"status": status})
 
 
@@ -302,17 +305,17 @@ async def ws_get_agent_status(
 })
 @callback
 def ws_subscribe_events(
-    hass: HomeAssistant, connection: ActiveConnection, msg: Dict[str, Any]
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Subscribe to events."""
     entry_id = msg["entry_id"]
-    
+
     if entry_id not in hass.data.get(DOMAIN, {}):
         connection.send_error(msg["id"], ERR_NOT_FOUND, "Agent not found")
         return
-    
+
     @callback
-    def forward_conversation_events(event_data: Dict[str, Any]) -> None:
+    def forward_conversation_events(event_data: dict[str, Any]) -> None:
         """Forward conversation events to websocket."""
         connection.send_message({
             "id": msg["id"],
@@ -322,9 +325,9 @@ def ws_subscribe_events(
                 "data": event_data,
             },
         })
-    
+
     @callback
-    def forward_tools_events(event_data: Dict[str, Any]) -> None:
+    def forward_tools_events(event_data: dict[str, Any]) -> None:
         """Forward tools events to websocket."""
         connection.send_message({
             "id": msg["id"],
@@ -334,9 +337,9 @@ def ws_subscribe_events(
                 "data": event_data,
             },
         })
-    
+
     @callback
-    def forward_mcp_events(event_data: Dict[str, Any]) -> None:
+    def forward_mcp_events(event_data: dict[str, Any]) -> None:
         """Forward MCP server events to websocket."""
         connection.send_message({
             "id": msg["id"],
@@ -346,7 +349,7 @@ def ws_subscribe_events(
                 "data": event_data,
             },
         })
-    
+
     # Subscribe to events
     unsub_conversation = async_dispatcher_connect(
         hass, f"{SIGNAL_CONVERSATION_UPDATED}_{entry_id}", forward_conversation_events
@@ -357,12 +360,13 @@ def ws_subscribe_events(
     unsub_mcp = async_dispatcher_connect(
         hass, f"{SIGNAL_MCP_SERVERS_UPDATED}_{entry_id}", forward_mcp_events
     )
-    
+
     # Register unsubscribe function
     connection.subscriptions[msg["id"]] = lambda: [
         unsub_conversation(),
         unsub_tools(),
         unsub_mcp(),
     ]
-    
+
     connection.send_result(msg["id"])
+

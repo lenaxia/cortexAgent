@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+import markdown as md
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -19,7 +20,7 @@ class ToolDocumentation:
 
     def __init__(self, hass: HomeAssistant, tool_registry: Any):
         """Initialize the documentation generator.
-        
+
         Args:
             hass: Home Assistant instance
             tool_registry: Tool registry instance
@@ -29,7 +30,7 @@ class ToolDocumentation:
 
     def generate_markdown(self) -> str:
         """Generate markdown documentation for all tools.
-        
+
         Returns:
             Markdown documentation
         """
@@ -54,10 +55,10 @@ class ToolDocumentation:
             lines.append("")
 
             # Get tools in this category
-            tool_ids = self.tool_registry._categories.get(category, [])
+            tool_ids = self.tool_registry.get_category_tools(category)
 
             for tool_id in sorted(tool_ids):
-                tool_data = self.tool_registry._tools.get(tool_id)
+                tool_data = self.tool_registry.get_tool(tool_id)
                 if not tool_data:
                     continue
 
@@ -88,62 +89,57 @@ class ToolDocumentation:
                     lines.append("")
 
                 # Examples
-                if "examples" in metadata and metadata["examples"]:
+                if metadata.get("examples"):
                     lines.append("#### Examples")
                     lines.append("")
-                    for example in metadata["examples"]:
-                        lines.append(f"- {example}")
+                    lines.extend([f"- {example}" for example in metadata["examples"]])
                     lines.append("")
 
                 # Permissions
-                if "permissions" in metadata and metadata["permissions"]:
+                if metadata.get("permissions"):
                     lines.append("#### Required Permissions")
                     lines.append("")
-                    for permission in metadata["permissions"]:
-                        lines.append(f"- {permission}")
+                    lines.extend([f"- {permission}" for permission in metadata["permissions"]])
                     lines.append("")
 
         return "\n".join(lines)
 
     def generate_html(self) -> str:
         """Generate HTML documentation for all tools.
-        
+
         Returns:
             HTML documentation
         """
         # Convert markdown to HTML
-        markdown = self.generate_markdown()
+        markdown_content = self.generate_markdown()
         try:
-            import markdown as md
-
-            html = md.markdown(markdown, extensions=["tables"])
-
-            # Add some basic styling
-            styled_html = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>CortexAgent Tools Documentation</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }}
-                    h1 {{ color: #2c3e50; }}
-                    h2 {{ color: #3498db; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-                    h3 {{ color: #2980b9; }}
-                    table {{ border-collapse: collapse; width: 100%; }}
-                    th, td {{ border: 1px solid #ddd; padding: 8px; }}
-                    th {{ background-color: #f2f2f2; text-align: left; }}
-                    tr:nth-child(even) {{ background-color: #f9f9f9; }}
-                    code {{ background-color: #f8f8f8; padding: 2px 4px; border-radius: 4px; }}
-                </style>
-            </head>
-            <body>
-                {html}
-            </body>
-            </html>
-            """
-            return styled_html
+            html = md.markdown(markdown_content, extensions=["tables"])
         except ImportError:
-            return f"<pre>{markdown}</pre>"
+            return f"<pre>{markdown_content}</pre>"
+
+        # Add some basic styling
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>CortexAgent Tools Documentation</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }}
+                h1 {{ color: #2c3e50; }}
+                h2 {{ color: #3498db; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
+                h3 {{ color: #2980b9; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                th {{ background-color: #f2f2f2; text-align: left; }}
+                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                code {{ background-color: #f8f8f8; padding: 2px 4px; border-radius: 4px; }}
+            </style>
+        </head>
+        <body>
+            {html}
+        </body>
+        </html>
+        """
 
     async def async_register_services(self) -> None:
         """Register services for documentation."""
@@ -164,7 +160,7 @@ class ToolDocumentation:
 
     async def _handle_generate_documentation(self, service: ServiceCall) -> None:
         """Handle generate_tool_documentation service call.
-        
+
         Args:
             service: Service call
         """

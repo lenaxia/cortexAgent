@@ -1,11 +1,13 @@
 """HTTP tools for CortexAgent."""
 from __future__ import annotations
 
-import logging
+from contextlib import suppress
 import json
-import aiohttp
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any
 from urllib.parse import urlparse
+
+import aiohttp
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -39,7 +41,7 @@ def register_http_tools(tool_registry) -> None:
         },
         category="http",
     )
-    
+
     tool_registry.register_tool(
         name="http_post",
         description="Make an HTTP POST request to a URL",
@@ -68,7 +70,7 @@ def register_http_tools(tool_registry) -> None:
         },
         category="http",
     )
-    
+
     tool_registry.register_tool(
         name="http_put",
         description="Make an HTTP PUT request to a URL",
@@ -97,7 +99,7 @@ def register_http_tools(tool_registry) -> None:
         },
         category="http",
     )
-    
+
     tool_registry.register_tool(
         name="http_delete",
         description="Make an HTTP DELETE request to a URL",
@@ -123,27 +125,27 @@ def register_http_tools(tool_registry) -> None:
 def _validate_url(url: str) -> bool:
     """Validate that a URL is safe to access."""
     parsed = urlparse(url)
-    
+
     # Check for valid scheme
     if parsed.scheme not in ("http", "https"):
         return False
-    
+
     # Check for localhost or private IP addresses
     hostname = parsed.netloc.split(":")[0].lower()
     if hostname in ("localhost", "127.0.0.1", "::1"):
         return False
-    
+
     # Check for private IP ranges
     if hostname.startswith(("10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
                            "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
                            "172.26.", "172.27.", "172.28.", "172.29.", "172.30.",
                            "172.31.", "192.168.")):
         return False
-    
+
     return True
 
 
-async def _process_response(response: aiohttp.ClientResponse) -> Dict[str, Any]:
+async def _process_response(response: aiohttp.ClientResponse) -> dict[str, Any]:
     """Process an HTTP response."""
     try:
         # Try to parse as JSON first
@@ -153,42 +155,40 @@ async def _process_response(response: aiohttp.ClientResponse) -> Dict[str, Any]:
         else:
             # Otherwise, get as text
             data = await response.text()
-            
+
             # Try to parse as JSON anyway if it looks like JSON
             if data.strip().startswith(("{", "[")):
-                try:
+                with suppress(json.JSONDecodeError):
                     data = json.loads(data)
-                except json.JSONDecodeError:
-                    pass
-        
+
         return {
             "status": response.status,
             "headers": dict(response.headers),
             "data": data,
         }
-    except Exception as ex:
+    except (aiohttp.ClientError, ValueError, TypeError) as ex:
         _LOGGER.error("Error processing HTTP response: %s", ex)
         return {
             "status": response.status,
             "headers": dict(response.headers),
-            "error": f"Error processing response: {str(ex)}",
+            "error": f"Error processing response: {ex!s}",
         }
 
 
-async def http_get(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def http_get(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Make an HTTP GET request."""
     url = args.get("url")
     headers = args.get("headers", {})
     params = args.get("params", {})
     timeout = args.get("timeout", 10)
-    
+
     if not url:
         return {"error": "url is required"}
-    
+
     # Validate URL
     if not _validate_url(url):
         return {"error": f"Invalid or unsafe URL: {url}"}
-    
+
     try:
         session = async_get_clientsession(hass)
         async with session.get(
@@ -200,37 +200,37 @@ async def http_get(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
             return await _process_response(response)
     except aiohttp.ClientError as ex:
         _LOGGER.error("HTTP GET request failed: %s", ex)
-        return {"error": f"HTTP GET request failed: {str(ex)}"}
-    except Exception as ex:
+        return {"error": f"HTTP GET request failed: {ex!s}"}
+    except (ValueError, TypeError, OSError) as ex:
         _LOGGER.error("Error making HTTP GET request: %s", ex)
-        return {"error": f"Error making HTTP GET request: {str(ex)}"}
+        return {"error": f"Error making HTTP GET request: {ex!s}"}
 
 
-async def http_post(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def http_post(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Make an HTTP POST request."""
     url = args.get("url")
     data = args.get("data", {})
     headers = args.get("headers", {})
     use_json = args.get("json", True)
     timeout = args.get("timeout", 10)
-    
+
     if not url:
         return {"error": "url is required"}
-    
+
     # Validate URL
     if not _validate_url(url):
         return {"error": f"Invalid or unsafe URL: {url}"}
-    
+
     try:
         session = async_get_clientsession(hass)
-        
+
         # Determine how to send the data
         kwargs = {}
         if use_json:
             kwargs["json"] = data
         else:
             kwargs["data"] = data
-        
+
         async with session.post(
             url=url,
             headers=headers,
@@ -240,37 +240,37 @@ async def http_post(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]
             return await _process_response(response)
     except aiohttp.ClientError as ex:
         _LOGGER.error("HTTP POST request failed: %s", ex)
-        return {"error": f"HTTP POST request failed: {str(ex)}"}
-    except Exception as ex:
+        return {"error": f"HTTP POST request failed: {ex!s}"}
+    except (ValueError, TypeError, OSError) as ex:
         _LOGGER.error("Error making HTTP POST request: %s", ex)
-        return {"error": f"Error making HTTP POST request: {str(ex)}"}
+        return {"error": f"Error making HTTP POST request: {ex!s}"}
 
 
-async def http_put(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def http_put(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Make an HTTP PUT request."""
     url = args.get("url")
     data = args.get("data", {})
     headers = args.get("headers", {})
     use_json = args.get("json", True)
     timeout = args.get("timeout", 10)
-    
+
     if not url:
         return {"error": "url is required"}
-    
+
     # Validate URL
     if not _validate_url(url):
         return {"error": f"Invalid or unsafe URL: {url}"}
-    
+
     try:
         session = async_get_clientsession(hass)
-        
+
         # Determine how to send the data
         kwargs = {}
         if use_json:
             kwargs["json"] = data
         else:
             kwargs["data"] = data
-        
+
         async with session.put(
             url=url,
             headers=headers,
@@ -280,25 +280,25 @@ async def http_put(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
             return await _process_response(response)
     except aiohttp.ClientError as ex:
         _LOGGER.error("HTTP PUT request failed: %s", ex)
-        return {"error": f"HTTP PUT request failed: {str(ex)}"}
-    except Exception as ex:
+        return {"error": f"HTTP PUT request failed: {ex!s}"}
+    except (ValueError, TypeError, OSError) as ex:
         _LOGGER.error("Error making HTTP PUT request: %s", ex)
-        return {"error": f"Error making HTTP PUT request: {str(ex)}"}
+        return {"error": f"Error making HTTP PUT request: {ex!s}"}
 
 
-async def http_delete(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, Any]:
+async def http_delete(hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
     """Make an HTTP DELETE request."""
     url = args.get("url")
     headers = args.get("headers", {})
     timeout = args.get("timeout", 10)
-    
+
     if not url:
         return {"error": "url is required"}
-    
+
     # Validate URL
     if not _validate_url(url):
         return {"error": f"Invalid or unsafe URL: {url}"}
-    
+
     try:
         session = async_get_clientsession(hass)
         async with session.delete(
@@ -309,7 +309,7 @@ async def http_delete(hass: HomeAssistant, args: Dict[str, Any]) -> Dict[str, An
             return await _process_response(response)
     except aiohttp.ClientError as ex:
         _LOGGER.error("HTTP DELETE request failed: %s", ex)
-        return {"error": f"HTTP DELETE request failed: {str(ex)}"}
-    except Exception as ex:
+        return {"error": f"HTTP DELETE request failed: {ex!s}"}
+    except (ValueError, TypeError, OSError) as ex:
         _LOGGER.error("Error making HTTP DELETE request: %s", ex)
-        return {"error": f"Error making HTTP DELETE request: {str(ex)}"}
+        return {"error": f"Error making HTTP DELETE request: {ex!s}"}

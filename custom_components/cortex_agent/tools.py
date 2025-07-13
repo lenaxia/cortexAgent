@@ -2,19 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Any, Optional, Union
+from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.const import (
-    SERVICE_TURN_ON,
-    SERVICE_TURN_OFF,
-    ATTR_ENTITY_ID,
-)
+from homeassistant.exceptions import HomeAssistantError
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def register_built_in_tools(tool_registry):
+def register_built_in_tools(tool_registry: Any) -> None:
     """Register built-in tools with the tool registry."""
     tool_registry.register_tool(
         name="ha_get_state",
@@ -32,7 +28,7 @@ def register_built_in_tools(tool_registry):
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="ha_set_state",
         description="Set the state of an entity",
@@ -55,7 +51,7 @@ def register_built_in_tools(tool_registry):
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="ha_call_service",
         description="Call a Home Assistant service",
@@ -78,7 +74,7 @@ def register_built_in_tools(tool_registry):
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="ha_get_entities",
         description="Get a list of entities",
@@ -91,7 +87,7 @@ def register_built_in_tools(tool_registry):
         },
         category="home_assistant",
     )
-    
+
     tool_registry.register_tool(
         name="ha_get_services",
         description="Get available services",
@@ -107,22 +103,22 @@ def register_built_in_tools(tool_registry):
 
 
 async def ha_get_state(
-    hass: HomeAssistant, 
-    entity_id: Optional[str] = None, 
-    domain: Optional[str] = None
-) -> Dict[str, Any]:
+    hass: HomeAssistant,
+    entity_id: str | None = None,
+    domain: str | None = None
+) -> dict[str, Any]:
     """Get the state of one or more entities.
-    
+
     Args:
         hass: Home Assistant instance
         entity_id: Entity ID to get state for (optional)
         domain: Domain to get states for (optional)
-        
+
     Returns:
         Dictionary of entity states
     """
     result = {}
-    
+
     # Get state for a specific entity
     if entity_id:
         state = hass.states.get(entity_id)
@@ -133,9 +129,9 @@ async def ha_get_state(
                 "last_updated": state.last_updated.isoformat(),
             }
         else:
-            result[entity_id] = None
+            result[entity_id] = {}
         return result
-    
+
     # Get states for a domain or all states
     states = hass.states.async_all(domain)
     for state in states:
@@ -144,35 +140,33 @@ async def ha_get_state(
             "attributes": dict(state.attributes),
             "last_updated": state.last_updated.isoformat(),
         }
-    
+
     return result
 
 
 async def ha_set_state(
-    hass: HomeAssistant, 
-    entity_id: str, 
-    state: str, 
-    attributes: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    hass: HomeAssistant,
+    entity_id: str,
+    state: str,
+    attributes: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Set the state of an entity.
-    
+
     Args:
         hass: Home Assistant instance
         entity_id: Entity ID to set state for
         state: State to set
         attributes: Attributes to set (optional)
-        
+
     Returns:
         Dictionary with result information
     """
+    # Set state and handle exceptions
     try:
-        await hass.states.async_set(entity_id, state, attributes or {})
-        return {
-            "success": True,
-            "entity_id": entity_id,
-            "state": state,
-        }
-    except Exception as ex:
+        # Call async_set without awaiting the result
+        hass.states.async_set(entity_id, state, attributes or {})
+    except (ValueError, TypeError, KeyError) as ex:
+        # Error case
         _LOGGER.error("Error setting state: %s", ex)
         return {
             "success": False,
@@ -180,37 +174,39 @@ async def ha_set_state(
             "error": str(ex),
         }
 
+    # Success case
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "state": state,
+    }
+
 
 async def ha_call_service(
-    hass: HomeAssistant, 
-    domain: str, 
-    service: str, 
-    service_data: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    service_data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Call a Home Assistant service.
-    
+
     Args:
         hass: Home Assistant instance
         domain: Domain of the service
         service: Service to call
         service_data: Service data (optional)
-        
+
     Returns:
         Dictionary with result information
     """
     try:
         await hass.services.async_call(
-            domain, 
-            service, 
-            service_data or {}, 
+            domain,
+            service,
+            service_data or {},
             blocking=True
         )
-        return {
-            "success": True,
-            "domain": domain,
-            "service": service,
-        }
-    except Exception as ex:
+    except (ValueError, TypeError, KeyError, HomeAssistantError) as ex:
         _LOGGER.error("Error calling service: %s", ex)
         return {
             "success": False,
@@ -219,49 +215,61 @@ async def ha_call_service(
             "error": str(ex),
         }
 
+    return {
+        "success": True,
+        "domain": domain,
+        "service": service,
+    }
+
 
 async def ha_get_entities(
-    hass: HomeAssistant, 
-    domain: Optional[str] = None
-) -> List[Dict[str, Any]]:
+    hass: HomeAssistant,
+    domain: str | None = None
+) -> list[dict[str, Any]]:
     """Get a list of entities.
-    
+
     Args:
         hass: Home Assistant instance
         domain: Domain to filter entities by (optional)
-        
+
     Returns:
         List of entities
     """
-    result = []
     states = hass.states.async_all(domain)
-    
-    for state in states:
-        result.append({
+    return [
+        {
             "entity_id": state.entity_id,
             "state": state.state,
             "attributes": dict(state.attributes),
-        })
-    
-    return result
+        }
+        for state in states
+    ]
 
 
 async def ha_get_services(
-    hass: HomeAssistant, 
-    domain: Optional[str] = None
-) -> Dict[str, Any]:
+    hass: HomeAssistant,
+    domain: str | None = None
+) -> dict[str, Any]:
     """Get available services.
-    
+
     Args:
         hass: Home Assistant instance
         domain: Domain to filter services by (optional)
-        
+
     Returns:
         Dictionary of services
     """
-    services = await hass.services.async_services()
-    
+    # Get services and handle the case where it might return a dict directly
+    services_result = hass.services.async_services()
+    if hasattr(services_result, "__await__"):
+        services = await services_result
+    else:
+        services = services_result
+
+    result: dict[str, Any] = {}
     if domain:
-        return {domain: services.get(domain, {})}
-    
-    return services
+        result = {domain: services.get(domain, {})}
+    else:
+        result = services
+
+    return result

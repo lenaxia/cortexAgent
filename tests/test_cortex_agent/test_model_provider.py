@@ -1,29 +1,26 @@
 """Tests for the CortexAgent model provider."""
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import MagicMock, patch
 
-from custom_components.cortex_agent.model_provider import (
-    create_model_provider,
-    OpenAIModelProvider,
-    BedrockModelProvider,
-    AnthropicModelProvider,
-    LiteLLMModelProvider,
-)
 from custom_components.cortex_agent.const import (
-    CONF_PROVIDER,
     CONF_API_KEY,
-    CONF_MODEL_ID,
     CONF_MAX_TOKENS,
+    CONF_MODEL_ID,
+    CONF_PROVIDER,
     CONF_TEMPERATURE,
-    PROVIDER_OPENAI,
-    PROVIDER_BEDROCK,
     PROVIDER_ANTHROPIC,
+    PROVIDER_BEDROCK,
     PROVIDER_LITELLM,
+    PROVIDER_OPENAI,
 )
-from custom_components.cortex_agent.exceptions import (
-    ModelProviderError,
-    AuthenticationError,
+from custom_components.cortex_agent.exceptions import ModelProviderError
+from custom_components.cortex_agent.model_provider import (
+    AnthropicModelProvider,
+    BedrockModelProvider,
+    LiteLLMModelProvider,
+    OpenAIModelProvider,
+    create_model_provider,
 )
+import pytest
 
 
 @pytest.fixture

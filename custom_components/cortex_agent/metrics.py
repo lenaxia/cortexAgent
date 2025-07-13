@@ -1,14 +1,15 @@
 """Metrics collection for the CortexAgent integration."""
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+import logging
+from typing import Any, TypedDict
 
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
 from .const import ATTR_ENTITY_ID, DOMAIN
@@ -16,19 +17,37 @@ from .const import ATTR_ENTITY_ID, DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+class TokenUsage(TypedDict):
+    """Token usage metrics structure."""
+    prompt: int
+    completion: int
+    total: int
+
+
+class MetricsDict(TypedDict, total=False):
+    """Metrics dictionary structure."""
+    requests: int
+    successful_requests: int
+    failed_requests: int
+    tool_usage: dict[str, int]
+    response_times: list[float]
+    token_usage: TokenUsage
+    errors: dict[str, int]
+
+
 class AgentMetrics:
     """Collects and reports metrics for agent performance."""
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         """Initialize metrics collection.
-        
+
         Args:
             hass: Home Assistant instance
             config_entry: Config entry
         """
         self.hass = hass
         self.config_entry = config_entry
-        self.metrics = {
+        self.metrics: MetricsDict = {
             "requests": 0,
             "successful_requests": 0,
             "failed_requests": 0,
@@ -52,11 +71,11 @@ class AgentMetrics:
     def record_request(
         self,
         successful: bool = True,
-        response_time: Optional[float] = None,
-        error_type: Optional[str] = None,
+        response_time: float | None = None,
+        error_type: str | None = None,
     ) -> None:
         """Record a request to the agent.
-        
+
         Args:
             successful: Whether the request was successful
             response_time: Response time in seconds
@@ -71,10 +90,11 @@ class AgentMetrics:
 
             # Record error type
             if error_type:
-                if error_type in self.metrics["errors"]:
-                    self.metrics["errors"][error_type] += 1
+                errors = self.metrics["errors"]
+                if error_type in errors:
+                    errors[error_type] += 1
                 else:
-                    self.metrics["errors"]["other"] += 1
+                    errors["other"] += 1
 
         # Record response time
         if response_time is not None:
@@ -86,7 +106,7 @@ class AgentMetrics:
 
     def record_tool_usage(self, tool_name: str) -> None:
         """Record usage of a tool.
-        
+
         Args:
             tool_name: Name of the tool
         """
@@ -97,7 +117,7 @@ class AgentMetrics:
 
     def record_token_usage(self, prompt_tokens: int, completion_tokens: int) -> None:
         """Record token usage.
-        
+
         Args:
             prompt_tokens: Number of prompt tokens
             completion_tokens: Number of completion tokens
@@ -106,13 +126,13 @@ class AgentMetrics:
         self.metrics["token_usage"]["completion"] += completion_tokens
         self.metrics["token_usage"]["total"] += prompt_tokens + completion_tokens
 
-    def get_metrics(self) -> Dict:
+    def get_metrics(self) -> dict[str, Any]:
         """Get current metrics with calculated values.
-        
+
         Returns:
             Dictionary of metrics
         """
-        metrics = dict(self.metrics)
+        metrics: dict[str, Any] = dict(self.metrics)
 
         # Calculate average response time
         if self.metrics["response_times"]:
@@ -182,7 +202,7 @@ class AgentMetrics:
 
     async def _handle_get_metrics(self, service: ServiceCall) -> None:
         """Handle get_agent_metrics service call.
-        
+
         Args:
             service: Service call
         """
@@ -196,24 +216,24 @@ class AgentMetrics:
 
     async def _handle_reset_metrics(self, service: ServiceCall) -> None:
         """Handle reset_agent_metrics service call.
-        
+
         Args:
             service: Service call
         """
         self.reset_metrics()
 
 
-def record_request(metrics_instance: AgentMetrics):
+def record_request(metrics_instance: AgentMetrics) -> Callable:
     """Decorator to record request metrics.
-    
+
     Args:
         metrics_instance: AgentMetrics instance
-        
+
     Returns:
         Decorated function
     """
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Callable) -> Callable:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             start_time = datetime.now()
             try:
                 result = await func(*args, **kwargs)
@@ -222,11 +242,10 @@ def record_request(metrics_instance: AgentMetrics):
                     successful=True,
                     response_time=response_time,
                 )
-                return result
             except Exception as ex:
                 response_time = (datetime.now() - start_time).total_seconds()
                 error_type = "other"
-                
+
                 # Determine error type
                 if "rate limit" in str(ex).lower():
                     error_type = "rate_limit"
@@ -238,56 +257,58 @@ def record_request(metrics_instance: AgentMetrics):
                     error_type = "api"
                 elif "tool" in str(ex).lower():
                     error_type = "tool"
-                
+
                 metrics_instance.record_request(
                     successful=False,
                     response_time=response_time,
                     error_type=error_type,
                 )
                 raise
+            else:
+                return result
         return wrapper
     return decorator
 
 
-def record_tool_usage(metrics_instance: AgentMetrics, tool_name: str):
+def record_tool_usage(metrics_instance: AgentMetrics, tool_name: str) -> Callable:
     """Decorator to record tool usage.
-    
+
     Args:
         metrics_instance: AgentMetrics instance
         tool_name: Name of the tool
-        
+
     Returns:
         Decorated function
     """
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Callable) -> Callable:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             metrics_instance.record_tool_usage(tool_name)
             return await func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-def record_token_usage(metrics_instance: AgentMetrics):
+def record_token_usage(metrics_instance: AgentMetrics) -> Callable:
     """Decorator to record token usage.
-    
+
     Args:
         metrics_instance: AgentMetrics instance
-        
+
     Returns:
         Decorated function
     """
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Callable) -> Callable:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             result = await func(*args, **kwargs)
-            
+
             # Extract token usage from result
             if isinstance(result, dict):
                 prompt_tokens = result.get("prompt_tokens", 0)
                 completion_tokens = result.get("completion_tokens", 0)
-                
+
                 if prompt_tokens or completion_tokens:
                     metrics_instance.record_token_usage(prompt_tokens, completion_tokens)
-            
+
             return result
         return wrapper
     return decorator
